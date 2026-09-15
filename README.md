@@ -69,3 +69,36 @@ Response đăng nhập trả về JWT trong `data.token`.
 | POST   | `/api/auth/login`    | Đăng nhập và nhận JWT |
 
 Các lỗi thường gặp: `400` dữ liệu không hợp lệ, `401` email/mật khẩu sai, `403` tài khoản không ACTIVE, `409` email hoặc số điện thoại đã tồn tại.
+
+## 5. CRUD category
+
+Base URL: `http://localhost:8000/api/categories`
+
+| Method | URL | Mô tả |
+| --- | --- | --- |
+| GET | `/api/categories` | Lấy tất cả category |
+| GET | `/api/categories/:id` | Lấy category theo id |
+| POST | `/api/categories` | Tạo category |
+| PUT | `/api/categories/:id` | Cập nhật category |
+| DELETE | `/api/categories/:id` | Xóa category |
+
+### Tạo category
+
+```json
+{
+  "name": "Điện thoại",
+  "slug": "dien-thoai",
+  "description": "Các sản phẩm điện thoại",
+  "imageUrl": "https://example.com/phone.jpg",
+  "status": "ACTIVE"
+}
+```
+
+Ví dụ bằng PowerShell:
+
+```powershell
+$body = @{ name = 'Điện thoại'; slug = 'dien-thoai'; description = 'Các sản phẩm điện thoại'; imageUrl = 'https://example.com/phone.jpg'; status = 'ACTIVE' } | ConvertTo-Json
+Invoke-WebRequest -Method Post -Uri http://localhost:8000/api/categories -ContentType 'application/json' -Body $body
+```
+
+`name` và `slug` là bắt buộc. `status` chỉ nhận `ACTIVE` hoặc `INACTIVE`. Tên và slug phải duy nhất.
