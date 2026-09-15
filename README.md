@@ -1,3 +1,5 @@
+Bài Tập Lớn
+
 # BE Auth API
 
 Backend Express cho đăng ký và đăng nhập người dùng bằng MySQL, bcrypt và JWT.
@@ -74,13 +76,13 @@ Các lỗi thường gặp: `400` dữ liệu không hợp lệ, `401` email/m�
 
 Base URL: `http://localhost:8000/api/categories`
 
-| Method | URL | Mô tả |
-| --- | --- | --- |
-| GET | `/api/categories` | Lấy tất cả category |
-| GET | `/api/categories/:id` | Lấy category theo id |
-| POST | `/api/categories` | Tạo category |
-| PUT | `/api/categories/:id` | Cập nhật category |
-| DELETE | `/api/categories/:id` | Xóa category |
+| Method | URL                   | Mô tả                |
+| ------ | --------------------- | -------------------- |
+| GET    | `/api/categories`     | Lấy tất cả category  |
+| GET    | `/api/categories/:id` | Lấy category theo id |
+| POST   | `/api/categories`     | Tạo category         |
+| PUT    | `/api/categories/:id` | Cập nhật category    |
+| DELETE | `/api/categories/:id` | Xóa category         |
 
 ### Tạo category
 
