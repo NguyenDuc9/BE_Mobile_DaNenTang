@@ -1,5 +1,5 @@
 const express = require('express');
-const categoryMiddleware = require('../middlewares/category.middleware');
+const categoryMiddleware = require('../controllers/categody.controller');
 
 const router = express.Router();
 
