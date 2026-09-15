@@ -17,7 +17,7 @@ const createToken = (user) =>
 
 const register = async (req, res) => {
   try {
-    const { fullName, email, phone, password } = req.body;
+    const { fullName, email, phone, password, roleName } = req.body;
 
     if (!fullName || !email || !password) {
       return res
@@ -36,7 +36,7 @@ const register = async (req, res) => {
       return res.status(409).json({ message: 'Email đã được sử dụng' });
     }
 
-    const role = await UserModel.findRoleByName('USER');
+    const role = await UserModel.findRoleByName(roleName || 'customer');
     if (!role) {
       return res
         .status(500)
