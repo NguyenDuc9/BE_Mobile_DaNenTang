@@ -104,3 +104,82 @@ Invoke-WebRequest -Method Post -Uri http://localhost:8000/api/categories -Conten
 ```
 
 `name` và `slug` là bắt buộc. `status` chỉ nhận `ACTIVE` hoặc `INACTIVE`. Tên và slug phải duy nhất.
+
+## 6. CRUD role
+
+Base URL: `http://localhost:8000/api/roles`
+
+| Method | URL              | Mô tả            |
+| ------ | ---------------- | ---------------- |
+| GET    | `/api/roles`     | Lấy tất cả role  |
+| GET    | `/api/roles/:id` | Lấy role theo id |
+| POST   | `/api/roles`     | Tạo role         |
+| PUT    | `/api/roles/:id` | Cập nhật role    |
+| DELETE | `/api/roles/:id` | Xóa role         |
+
+Body tạo/cập nhật role:
+
+```json
+{
+  "name": "ADMIN",
+  "description": "Quản trị viên"
+}
+```
+
+`name` là bắt buộc, dài tối đa 50 ký tự và phải duy nhất. `description` dài tối đa 255 ký tự. Không thể xóa role đang được user sử dụng.
+
+## 7. CRUD user
+
+Base URL: `http://localhost:8000/api/users`
+
+| Method | URL              | Mô tả            |
+| ------ | ---------------- | ---------------- |
+| GET    | `/api/users`     | Lấy tất cả user  |
+| GET    | `/api/users/:id` | Lấy user theo id |
+| POST   | `/api/users`     | Tạo user         |
+| PUT    | `/api/users/:id` | Cập nhật user    |
+| DELETE | `/api/users/:id` | Xóa user         |
+
+Body tạo user:
+
+```json
+{
+  "roleId": 1,
+  "fullName": "Nguyen Van A",
+  "email": "a@example.com",
+  "phone": "0900000000",
+  "password": "123456",
+  "avatarUrl": "https://example.com/avatar.jpg",
+  "status": "ACTIVE"
+}
+```
+
+Khi cập nhật, các trường có thể gửi từng phần; `password` sẽ được hash bằng bcrypt. `status` chỉ nhận `ACTIVE`, `INACTIVE` hoặc `BLOCKED`. Response không trả về mật khẩu. Không thể xóa user đang được bảng khác tham chiếu.
+
+## 8. CRUD product
+
+Base URL: `http://localhost:8000/api/products`
+
+| Method | URL                 | Mô tả                |
+| ------ | ------------------- | -------------------- |
+| GET    | `/api/products`     | Lấy tất cả sản phẩm  |
+| GET    | `/api/products/:id` | Lấy sản phẩm theo id |
+| POST   | `/api/products`     | Tạo sản phẩm         |
+| PUT    | `/api/products/:id` | Cập nhật sản phẩm    |
+| DELETE | `/api/products/:id` | Xóa sản phẩm         |
+
+Body tạo/cập nhật sản phẩm:
+
+```json
+{
+  "categoryId": 1,
+  "brandId": 1,
+  "name": "Laptop Gaming",
+  "slug": "laptop-gaming",
+  "description": "Laptop cho chơi game",
+  "thumbnailUrl": "https://example.com/laptop.jpg",
+  "status": "DRAFT"
+}
+```
+
+`categoryId`, `brandId`, `name` và `slug` là bắt buộc khi tạo. `slug` phải duy nhất; `status` chỉ nhận `DRAFT`, `ACTIVE` hoặc `INACTIVE`. Không thể xóa sản phẩm đang có product variant.

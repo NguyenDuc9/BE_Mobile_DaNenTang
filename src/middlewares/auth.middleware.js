@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const UserModel = require('../models/user.model');
+const UserModel = require('../models/auth.model');
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
 
