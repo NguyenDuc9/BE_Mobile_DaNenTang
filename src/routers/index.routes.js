@@ -1,6 +1,25 @@
 const express = require('express');
 const categoryRouter = require('./category.router');
+const cartRouter = require('./cart.router');
+const voucherRouter = require('./voucher.router');
+const buildRouter = require('./build.router');
+const customBuildRouter = require('./custom-build.router');
+const warrantyRouter = require('./warranty.router');
+const notificationRouter = require('./notification.router');
+const orderRouter = require('./order.router');
+const paymentRouter = require('./payment.router');
+const inventoryRouter = require('./inventory.router');
 const router = express.Router();
 
 router.use('/categories', categoryRouter);
+router.use('/cart', cartRouter);
+router.use('/vouchers', voucherRouter);
+router.use('/build-templates', buildRouter);
+router.use('/custom-builds', customBuildRouter);
+router.use('/warranties', warrantyRouter);
+router.use('/notifications', notificationRouter);
+router.use('/orders', orderRouter);
+router.use('/admin/orders', orderRouter);
+router.use('/', paymentRouter);
+router.use('/inventory', inventoryRouter);
 module.exports = router;
