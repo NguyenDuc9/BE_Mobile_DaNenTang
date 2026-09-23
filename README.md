@@ -102,3 +102,43 @@ Invoke-WebRequest -Method Post -Uri http://localhost:8000/api/categories -Conten
 ```
 
 `name` và `slug` là bắt buộc. `status` chỉ nhận `ACTIVE` hoặc `INACTIVE`. Tên và slug phải duy nhất.
+
+## Build, warranty và notification API
+
+Các API dưới đây yêu cầu `Authorization: Bearer <token>`:
+
+- Build template: `GET /api/build-templates`, `GET /api/build-templates/:id`,
+  `POST`, `PUT /:id` và `PATCH /:id/status` (admin/staff ghi dữ liệu).
+- Custom build: `GET/POST /api/custom-builds`, `GET /:id`, `POST /:id/items`,
+  `PUT /:id/items`, `POST /:id/submit`. Build chỉ được sửa khi còn `DRAFT`;
+  giá và snapshot linh kiện luôn lấy từ database.
+- Warranty: `GET /api/warranties`, `GET /:id`,
+  `GET /serial/:serialNumber`, `POST` và `PATCH /:id` (admin/staff tạo/sửa).
+- Notification: `GET /api/notifications?page=1&limit=20`,
+  `GET /api/notifications/unread-count`, `PATCH /:id/read`,
+  `PATCH /read-all`, `DELETE /:id`. User chỉ truy cập notification của mình.
+
+## Cart, voucher, order và inventory API
+
+Các endpoint dưới đây yêu cầu JWT. Cart và order chỉ thao tác trên dữ liệu của
+user hiện tại; giá, tồn kho, voucher và tổng tiền đều được đọc/tính lại ở
+backend.
+
+- Cart: `GET /api/cart`, `POST /api/cart/items`,
+  `PUT /api/cart/items/:id`, `DELETE /api/cart/items/:id`,
+  `DELETE /api/cart`.
+- Voucher: `GET /api/vouchers/available`, `GET /api/vouchers/:code`.
+  Admin/staff có thêm `GET/POST /api/vouchers`, `PUT /:id` và
+  `PATCH /:id/status`.
+- Order từ cart: `POST /api/orders` với `addressId`, tùy chọn `voucherCode`
+  và `note`; xem bằng `GET /api/orders`, `GET /api/orders/:id`, hủy bằng
+  `PATCH /api/orders/:id/cancel`.
+- Staff/admin quản lý order bằng `GET /api/admin/orders` và
+  `PATCH /api/orders/:id/status`; hệ thống kiểm tra state transition và tạo
+  notification cho user khi trạng thái thay đổi.
+- Custom build checkout: `POST /api/custom-builds/:id/checkout`.
+- Payment: `GET/POST /api/orders/:orderId/payment` và
+  `PATCH /api/payments/:id/status`.
+- Inventory (admin/staff): `GET /api/inventory/transactions`,
+  `POST /api/inventory/import`, `POST /api/inventory/adjustment`.
+  Mọi thay đổi kho đều ghi `inventory_transactions` trong cùng transaction.

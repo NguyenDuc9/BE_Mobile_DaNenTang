@@ -1,0 +1,10 @@
+const Model = require('../models/warranty.model');
+const staff = (req) => ['admin', 'staff', 'ADMIN', 'STAFF'].includes(req.user.role);
+const error = (res, e) => res.status(e.status || (e.code === 'ER_DUP_ENTRY' ? 409 : 500)).json({ message: e.status ? e.message : 'Lỗi máy chủ' });
+const valid = (d) => { if (!d.orderItemId || !d.serialNumber || !d.startDate || !d.endDate) return 'orderItemId, serialNumber, startDate, endDate là bắt buộc'; if (new Date(d.endDate) < new Date(d.startDate)) return 'endDate không được trước startDate'; if (d.status && !['ACTIVE', 'EXPIRED', 'CLAIMED'].includes(d.status)) return 'status không hợp lệ'; return null; };
+const list = async (req, res) => { try { res.json({ data: await Model.list(req.user.id, staff(req)) }); } catch (e) { error(res, e); } };
+const find = async (req, res) => { try { const w = await Model.find(req.params.id, req.user.id, staff(req)); if (!w) return res.status(404).json({ message: 'Warranty không tồn tại' }); res.json({ data: w }); } catch (e) { error(res, e); } };
+const serial = async (req, res) => { try { const w = await Model.bySerial(req.params.serialNumber); if (!w) return res.status(404).json({ message: 'Warranty không tồn tại' }); const owned = staff(req) || await Model.find(w.id, req.user.id, false); if (!owned) return res.status(404).json({ message: 'Warranty không tồn tại' }); res.json({ data: w }); } catch (e) { error(res, e); } };
+const create = async (req, res) => { const m = valid(req.body); if (m) return res.status(400).json({ message: m }); try { const id = await Model.create(req.body); res.status(201).json({ data: { id } }); } catch (e) { error(res, e); } };
+const update = async (req, res) => { const m = valid(req.body); if (m) return res.status(400).json({ message: m }); try { if (!(await Model.update(req.params.id, req.body))) return res.status(404).json({ message: 'Warranty không tồn tại' }); res.json({ message: 'Cập nhật thành công' }); } catch (e) { error(res, e); } };
+module.exports = { list, find, serial, create, update };
