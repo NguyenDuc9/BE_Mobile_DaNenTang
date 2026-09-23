@@ -1,3 +1,5 @@
+Bài Tập Lớn
+
 # BE Auth API
 
 Backend Express cho đăng ký và đăng nhập người dùng bằng MySQL, bcrypt và JWT.
@@ -74,13 +76,13 @@ Các lỗi thường gặp: `400` dữ liệu không hợp lệ, `401` email/m�
 
 Base URL: `http://localhost:8000/api/categories`
 
-| Method | URL | Mô tả |
-| --- | --- | --- |
-| GET | `/api/categories` | Lấy tất cả category |
-| GET | `/api/categories/:id` | Lấy category theo id |
-| POST | `/api/categories` | Tạo category |
-| PUT | `/api/categories/:id` | Cập nhật category |
-| DELETE | `/api/categories/:id` | Xóa category |
+| Method | URL                   | Mô tả                |
+| ------ | --------------------- | -------------------- |
+| GET    | `/api/categories`     | Lấy tất cả category  |
+| GET    | `/api/categories/:id` | Lấy category theo id |
+| POST   | `/api/categories`     | Tạo category         |
+| PUT    | `/api/categories/:id` | Cập nhật category    |
+| DELETE | `/api/categories/:id` | Xóa category         |
 
 ### Tạo category
 
@@ -103,42 +105,112 @@ Invoke-WebRequest -Method Post -Uri http://localhost:8000/api/categories -Conten
 
 `name` và `slug` là bắt buộc. `status` chỉ nhận `ACTIVE` hoặc `INACTIVE`. Tên và slug phải duy nhất.
 
-## Build, warranty và notification API
+## 6. CRUD role
 
-Các API dưới đây yêu cầu `Authorization: Bearer <token>`:
+Base URL: `http://localhost:8000/api/roles`
 
-- Build template: `GET /api/build-templates`, `GET /api/build-templates/:id`,
-  `POST`, `PUT /:id` và `PATCH /:id/status` (admin/staff ghi dữ liệu).
-- Custom build: `GET/POST /api/custom-builds`, `GET /:id`, `POST /:id/items`,
-  `PUT /:id/items`, `POST /:id/submit`. Build chỉ được sửa khi còn `DRAFT`;
-  giá và snapshot linh kiện luôn lấy từ database.
-- Warranty: `GET /api/warranties`, `GET /:id`,
-  `GET /serial/:serialNumber`, `POST` và `PATCH /:id` (admin/staff tạo/sửa).
-- Notification: `GET /api/notifications?page=1&limit=20`,
-  `GET /api/notifications/unread-count`, `PATCH /:id/read`,
-  `PATCH /read-all`, `DELETE /:id`. User chỉ truy cập notification của mình.
+| Method | URL              | Mô tả            |
+| ------ | ---------------- | ---------------- |
+| GET    | `/api/roles`     | Lấy tất cả role  |
+| GET    | `/api/roles/:id` | Lấy role theo id |
+| POST   | `/api/roles`     | Tạo role         |
+| PUT    | `/api/roles/:id` | Cập nhật role    |
+| DELETE | `/api/roles/:id` | Xóa role         |
+
+Body tạo/cập nhật role:
+
+```json
+{
+  "name": "ADMIN",
+  "description": "Quản trị viên"
+}
+```
+
+`name` là bắt buộc, dài tối đa 50 ký tự và phải duy nhất. `description` dài tối đa 255 ký tự. Không thể xóa role đang được user sử dụng.
+
+## 7. CRUD user
+
+Base URL: `http://localhost:8000/api/users`
+
+| Method | URL              | Mô tả            |
+| ------ | ---------------- | ---------------- |
+| GET    | `/api/users`     | Lấy tất cả user  |
+| GET    | `/api/users/:id` | Lấy user theo id |
+| POST   | `/api/users`     | Tạo user         |
+| PUT    | `/api/users/:id` | Cập nhật user    |
+| DELETE | `/api/users/:id` | Xóa user         |
+
+Body tạo user:
+
+```json
+{
+  "roleId": 1,
+  "fullName": "Nguyen Van A",
+  "email": "a@example.com",
+  "phone": "0900000000",
+  "password": "123456",
+  "avatarUrl": "https://example.com/avatar.jpg",
+  "status": "ACTIVE"
+}
+```
+
+Khi cập nhật, các trường có thể gửi từng phần; `password` sẽ được hash bằng bcrypt. `status` chỉ nhận `ACTIVE`, `INACTIVE` hoặc `BLOCKED`. Response không trả về mật khẩu. Không thể xóa user đang được bảng khác tham chiếu.
+
+## 8. CRUD product
+
+Base URL: `http://localhost:8000/api/products`
+
+| Method | URL                 | Mô tả                |
+| ------ | ------------------- | -------------------- |
+| GET    | `/api/products`     | Lấy tất cả sản phẩm  |
+| GET    | `/api/products/:id` | Lấy sản phẩm theo id |
+| POST   | `/api/products`     | Tạo sản phẩm         |
+| PUT    | `/api/products/:id` | Cập nhật sản phẩm    |
+| DELETE | `/api/products/:id` | Xóa sản phẩm         |
+
+Body tạo/cập nhật sản phẩm:
+
+```json
+{
+  "categoryId": 1,
+  "brandId": 1,
+  "name": "Laptop Gaming",
+  "slug": "laptop-gaming",
+  "description": "Laptop cho chơi game",
+  "thumbnailUrl": "https://example.com/laptop.jpg",
+  "status": "DRAFT"
+}
+```
+
+`categoryId`, `brandId`, `name` và `slug` là bắt buộc khi tạo. `slug` phải duy nhất; `status` chỉ nhận `DRAFT`, `ACTIVE` hoặc `INACTIVE`. Không thể xóa sản phẩm đang có product variant.
 
 ## Cart, voucher, order và inventory API
 
 Các endpoint dưới đây yêu cầu JWT. Cart và order chỉ thao tác trên dữ liệu của
-user hiện tại; giá, tồn kho, voucher và tổng tiền đều được đọc/tính lại ở
-backend.
+user hiện tại; giá, tồn kho, voucher và tổng tiền được tính lại ở backend.
 
-- Cart: `GET /api/cart`, `POST /api/cart/items`,
-  `PUT /api/cart/items/:id`, `DELETE /api/cart/items/:id`,
-  `DELETE /api/cart`.
+- Cart: `GET /api/cart`, `POST /api/cart/items`, `PUT /api/cart/items/:id`,
+  `DELETE /api/cart/items/:id`, `DELETE /api/cart`.
 - Voucher: `GET /api/vouchers/available`, `GET /api/vouchers/:code`.
-  Admin/staff có thêm `GET/POST /api/vouchers`, `PUT /:id` và
-  `PATCH /:id/status`.
-- Order từ cart: `POST /api/orders` với `addressId`, tùy chọn `voucherCode`
-  và `note`; xem bằng `GET /api/orders`, `GET /api/orders/:id`, hủy bằng
+  Admin/staff có thêm các endpoint quản trị voucher.
+- Order: `POST /api/orders`, `GET /api/orders`, `GET /api/orders/:id`,
   `PATCH /api/orders/:id/cancel`.
-- Staff/admin quản lý order bằng `GET /api/admin/orders` và
-  `PATCH /api/orders/:id/status`; hệ thống kiểm tra state transition và tạo
-  notification cho user khi trạng thái thay đổi.
-- Custom build checkout: `POST /api/custom-builds/:id/checkout`.
-- Payment: `GET/POST /api/orders/:orderId/payment` và
+- Admin/staff: `GET /api/admin/orders`,
+  `PATCH /api/orders/:id/status`.
+- Payment: `GET/POST /api/orders/:orderId/payment`,
   `PATCH /api/payments/:id/status`.
-- Inventory (admin/staff): `GET /api/inventory/transactions`,
+- Inventory: `GET /api/inventory/transactions`,
   `POST /api/inventory/import`, `POST /api/inventory/adjustment`.
-  Mọi thay đổi kho đều ghi `inventory_transactions` trong cùng transaction.
+
+## Build, warranty và notification API
+
+- Build template: `GET/POST /api/build-templates`, `GET/PUT /:id`,
+  `PATCH /:id/status`.
+- Custom build: `GET/POST /api/custom-builds`, `GET /:id`,
+  `POST /:id/items`, `PUT /:id/items`, `POST /:id/submit`,
+  `POST /:id/checkout`.
+- Warranty: `GET /api/warranties`, `GET /:id`,
+  `GET /serial/:serialNumber`, `POST`, `PATCH /:id`.
+- Notification: `GET /api/notifications`,
+  `GET /api/notifications/unread-count`, `PATCH /:id/read`,
+  `PATCH /read-all`, `DELETE /:id`.

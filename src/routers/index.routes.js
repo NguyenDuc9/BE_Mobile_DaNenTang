@@ -1,5 +1,8 @@
 const express = require('express');
 const categoryRouter = require('./category.router');
+const roleRouter = require('./role.router');
+const userRouter = require('./user.router');
+const productRouter = require('./product.router');
 const cartRouter = require('./cart.router');
 const voucherRouter = require('./voucher.router');
 const buildRouter = require('./build.router');
@@ -12,6 +15,9 @@ const inventoryRouter = require('./inventory.router');
 const router = express.Router();
 
 router.use('/categories', categoryRouter);
+router.use('/roles', roleRouter);
+router.use('/users', userRouter);
+router.use('/products', productRouter);
 router.use('/cart', cartRouter);
 router.use('/vouchers', voucherRouter);
 router.use('/build-templates', buildRouter);
