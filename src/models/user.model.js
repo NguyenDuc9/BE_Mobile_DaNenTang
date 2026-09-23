@@ -13,6 +13,17 @@ const UserModel = {
     return rows[0];
   },
 
+  findById: async (id) => {
+    const [rows] = await db.promise().execute(
+      `SELECT u.id, u.full_name, u.email, u.phone, u.avatar_url, u.status,
+              r.name AS role_name
+       FROM users u JOIN roles r ON r.id = u.role_id
+       WHERE u.id = ? LIMIT 1`,
+      [id],
+    );
+    return rows[0];
+  },
+
   create: async ({ roleId, fullName, email, phone, passwordHash }) => {
     const query = `
       INSERT INTO users (role_id, full_name, email, phone, password_hash)

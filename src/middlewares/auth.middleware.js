@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const UserModel = require('../models/user.model');
+const { authenticate, authorize } = require('./authorization.middleware');
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
 
@@ -17,7 +18,7 @@ const createToken = (user) =>
 
 const register = async (req, res) => {
   try {
-    const { fullName, email, phone, password, roleName } = req.body;
+    const { fullName, email, phone, password } = req.body;
 
     if (!fullName || !email || !password) {
       return res
@@ -36,7 +37,7 @@ const register = async (req, res) => {
       return res.status(409).json({ message: 'Email đã được sử dụng' });
     }
 
-    const role = await UserModel.findRoleByName(roleName || 'customer');
+    const role = await UserModel.findRoleByName('customer');
     if (!role) {
       return res
         .status(500)
@@ -111,4 +112,16 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { register, login };
+const me = async (req, res) => {
+  try {
+    const user = await UserModel.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'Không tìm thấy user' });
+    if (user.status !== 'ACTIVE') return res.status(403).json({ message: 'Tài khoản không hoạt động' });
+    return res.json({ data: { id: user.id, fullName: user.full_name, email: user.email, phone: user.phone, avatarUrl: user.avatar_url, role: user.role_name } });
+  } catch (error) {
+    console.error('Get current user error:', error);
+    return res.status(500).json({ message: 'Lỗi máy chủ' });
+  }
+};
+
+module.exports = { register, login, me, authenticate, authorize };
