@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const ProductImageController = require('../controllers/productImage.controller');
+const { authenticate, authorize } = require('../middlewares/authorization.middleware');
 
 // Lấy tất cả ảnh
 router.get('/', ProductImageController.getAll);
@@ -13,12 +14,12 @@ router.get('/product/:productId', ProductImageController.getByProductId);
 router.get('/:id', ProductImageController.getById);
 
 // Thêm ảnh
-router.post('/', ProductImageController.create);
+router.post('/', authenticate, authorize('staff', 'admin'), ProductImageController.create);
 
 // Cập nhật ảnh
-router.put('/:id', ProductImageController.update);
+router.put('/:id', authenticate, authorize('staff', 'admin'), ProductImageController.update);
 
 // Xóa ảnh
-router.delete('/:id', ProductImageController.delete);
+router.delete('/:id', authenticate, authorize('staff', 'admin'), ProductImageController.delete);
 
 module.exports = router;

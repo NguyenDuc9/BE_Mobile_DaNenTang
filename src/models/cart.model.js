@@ -10,12 +10,27 @@ const CartModel = {
     const cart = await CartModel.findOrCreate(userId);
     const [items] = await db.promise().execute(`
       SELECT ci.id, ci.product_variant_id, ci.quantity, pv.sku, pv.variant_name,
-             pv.price, p.id AS product_id, p.name AS product_name
+             pv.price, pv.compare_at_price, pv.stock_quantity,
+             pv.warranty_months, pv.status AS variant_status,
+             p.id AS product_id, p.name AS product_name, p.thumbnail_url,
+             p.status AS product_status
       FROM cart_items ci JOIN carts c ON c.id = ci.cart_id
       JOIN product_variants pv ON pv.id = ci.product_variant_id
       JOIN products p ON p.id = pv.product_id
       WHERE c.id = ? ORDER BY ci.created_at DESC`, [cart.id]);
     return { ...cart, items };
+  },
+  findOwnedItemWithStock: async (userId, itemId) => {
+    const [rows] = await db.promise().execute(
+      `SELECT ci.id, ci.quantity, pv.stock_quantity
+       FROM cart_items ci
+       JOIN carts c ON c.id = ci.cart_id
+       JOIN product_variants pv ON pv.id = ci.product_variant_id
+       WHERE ci.id = ? AND c.user_id = ?
+       LIMIT 1`,
+      [itemId, userId],
+    );
+    return rows[0];
   },
   addItem: async (userId, variantId, quantity) => {
     const cart = await CartModel.findOrCreate(userId);

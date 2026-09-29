@@ -48,6 +48,9 @@ const validateVoucher = async (connection, code, subtotal) => {
 };
 
 const checkout = async (userId, body) => {
+  if (body.note && String(body.note).length > 500) {
+    fail('Ghi chú đơn hàng không được vượt quá 500 ký tự', 400);
+  }
   const addressId = idOf(body.addressId, 'addressId');
   return db.withTransaction(async (connection) => {
     const [addressRows] = await connection.execute(
@@ -252,6 +255,9 @@ const updateStatus = async (idValue, status, reason) => {
 };
 
 const checkoutCustom = async (userId, buildIdValue, body) => {
+  if (body.note && String(body.note).length > 500) {
+    fail('Ghi chú đơn hàng không được vượt quá 500 ký tự', 400);
+  }
   const buildId = idOf(buildIdValue, 'customBuildId');
   const addressId = idOf(body.addressId, 'addressId');
   return db.withTransaction(async (connection) => {
