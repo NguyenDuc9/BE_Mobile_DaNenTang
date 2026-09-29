@@ -1,0 +1,12 @@
+const express = require('express');
+const c = require('../controllers/notification.controller');
+const { authenticate } = require('../middlewares/authorization.middleware');
+const { positiveId } = require('../middlewares/validation.middleware');
+const router = express.Router();
+router.use(authenticate);
+router.get('/', c.list);
+router.get('/unread-count', c.unread);
+router.patch('/read-all', c.readAll);
+router.patch('/:id/read', positiveId('id'), c.read);
+router.delete('/:id', positiveId('id'), c.remove);
+module.exports = router;

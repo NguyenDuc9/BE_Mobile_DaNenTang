@@ -1,0 +1,12 @@
+const express = require('express');
+const c = require('../controllers/warranty.controller');
+const { authenticate, authorize } = require('../middlewares/authorization.middleware');
+const { positiveId } = require('../middlewares/validation.middleware');
+const router = express.Router();
+router.use(authenticate);
+router.get('/', c.list);
+router.get('/serial/:serialNumber', c.serial);
+router.get('/:id', positiveId('id'), c.find);
+router.post('/', authorize('admin', 'staff', 'ADMIN', 'STAFF'), c.create);
+router.patch('/:id', positiveId('id'), authorize('admin', 'staff', 'ADMIN', 'STAFF'), c.update);
+module.exports = router;

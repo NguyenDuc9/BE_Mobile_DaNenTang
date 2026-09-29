@@ -1,0 +1,17 @@
+const express = require('express');
+const c = require('../controllers/custom-build.controller');
+const { authenticate } = require('../middlewares/authorization.middleware');
+const { positiveId } = require('../middlewares/validation.middleware');
+const router = express.Router();
+router.use(authenticate);
+router.get('/', c.list);
+router.get('/:id', positiveId('id'), c.find);
+router.post('/', c.create);
+router.put('/:id', positiveId('id'), c.items);
+router.post('/:id/items', positiveId('id'), c.addItem);
+router.put('/:id/items', positiveId('id'), c.items);
+router.put('/:id/items/:itemId', positiveId('id'), positiveId('itemId'), c.updateItem);
+router.delete('/:id/items/:itemId', positiveId('id'), positiveId('itemId'), c.deleteItem);
+router.post('/:id/submit', positiveId('id'), c.submit);
+router.post('/:id/checkout', positiveId('id'), c.checkout);
+module.exports = router;

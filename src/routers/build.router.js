@@ -1,0 +1,12 @@
+const express = require('express');
+const c = require('../controllers/build.controller');
+const { authenticate, authorize } = require('../middlewares/authorization.middleware');
+const { positiveId } = require('../middlewares/validation.middleware');
+const router = express.Router();
+router.use(authenticate);
+router.get('/', c.list);
+router.get('/:id', positiveId('id'), c.find);
+router.post('/', authorize('admin', 'staff', 'ADMIN', 'STAFF'), c.save);
+router.put('/:id', positiveId('id'), authorize('admin', 'staff', 'ADMIN', 'STAFF'), c.save);
+router.patch('/:id/status', positiveId('id'), authorize('admin', 'staff', 'ADMIN', 'STAFF'), c.status);
+module.exports = router;
