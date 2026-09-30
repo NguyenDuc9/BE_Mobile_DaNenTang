@@ -18,20 +18,38 @@ const orderCode = () =>
     .slice(2, 7)
     .toUpperCase()}`;
 
-const validateVoucher = async (connection, code, subtotal) => {
+const SPECIAL_REQUESTS = new Set([
+  'AFTER_HOURS',
+  'CALL_BEFORE_DELIVERY',
+  'CAREFUL_PACKAGING',
+  'SMS_ONLY',
+  'INSPECT_BEFORE_RECEIVING',
+]);
+const PAYMENT_METHODS = new Set(['COD', 'BANK_TRANSFER', 'MOMO', 'VNPAY']);
+
+const validateVoucher = async (connection, userId, code, subtotal, lock = false) => {
   if (!code) return { id: null, code: null, discount: 0 };
   const [rows] = await connection.execute(
     `SELECT * FROM vouchers
      WHERE code = ? AND status = 'ACTIVE'
        AND start_at <= NOW() AND end_at > NOW()
        AND (usage_limit IS NULL OR used_count < usage_limit)
-     FOR UPDATE`,
+     ${lock ? 'FOR UPDATE' : ''}`,
     [String(code).trim().toUpperCase()],
   );
   const voucher = rows[0];
   if (!voucher) fail('Voucher không tồn tại, hết hạn hoặc đã hết lượt sử dụng', 422);
   if (subtotal < Number(voucher.min_order_value)) {
     fail('Đơn hàng chưa đạt giá trị tối thiểu của voucher', 422);
+  }
+  if (voucher.user_usage_limit !== null) {
+    const [usageRows] = await connection.execute(
+      'SELECT COUNT(*) AS count FROM voucher_usages WHERE voucher_id = ? AND user_id = ?',
+      [voucher.id, userId],
+    );
+    if (Number(usageRows[0].count) >= Number(voucher.user_usage_limit)) {
+      fail('Bạn đã sử dụng hết lượt của voucher này', 422);
+    }
   }
   let discount =
     voucher.discount_type === 'PERCENT'
@@ -47,75 +65,232 @@ const validateVoucher = async (connection, code, subtotal) => {
   };
 };
 
-const checkout = async (userId, body) => {
-  const addressId = idOf(body.addressId, 'addressId');
-  return db.withTransaction(async (connection) => {
-    const [addressRows] = await connection.execute(
-      'SELECT * FROM addresses WHERE id = ? AND user_id = ? FOR UPDATE',
-      [addressId, userId],
-    );
-    const address = addressRows[0];
-    if (!address) fail('Địa chỉ không tồn tại hoặc không thuộc user', 404);
+const normalizeCheckout = (body = {}, requireIdempotency = false) => {
+  const fulfillmentMethod = body.fulfillmentMethod || 'DELIVERY';
+  if (!['DELIVERY', 'PICKUP'].includes(fulfillmentMethod)) {
+    fail('fulfillmentMethod không hợp lệ', 400);
+  }
+  const paymentMethod = body.paymentMethod || 'COD';
+  if (!PAYMENT_METHODS.has(paymentMethod)) fail('paymentMethod không hợp lệ', 400);
+  const note = body.note == null ? null : String(body.note).trim();
+  if (note && note.length > 500) {
+    fail('Ghi chú đơn hàng không được vượt quá 500 ký tự', 400);
+  }
+  const specialRequests = Array.isArray(body.specialRequests)
+    ? [...new Set(body.specialRequests)]
+    : [];
+  if (specialRequests.some((item) => !SPECIAL_REQUESTS.has(item))) {
+    fail('Yêu cầu đặc biệt không hợp lệ', 400);
+  }
+  const idempotencyKey = body.idempotencyKey
+    ? String(body.idempotencyKey).trim()
+    : null;
+  if (
+    requireIdempotency &&
+    (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 80)
+  ) {
+    fail('Idempotency-Key phải có từ 8 đến 80 ký tự', 400);
+  }
+  return {
+    ...body,
+    fulfillmentMethod,
+    paymentMethod,
+    note,
+    specialRequests,
+    idempotencyKey,
+  };
+};
 
-    const [items] = await connection.execute(
-      `SELECT ci.id, ci.product_variant_id, ci.quantity, pv.price, pv.sku,
-              pv.variant_name, pv.stock_quantity, p.name AS product_name
-       FROM cart_items ci
-       JOIN carts c ON c.id = ci.cart_id AND c.user_id = ?
-       JOIN product_variants pv ON pv.id = ci.product_variant_id
-       JOIN products p ON p.id = pv.product_id
-       WHERE c.user_id = ? AND pv.status = 'ACTIVE' AND p.status = 'ACTIVE'
-       FOR UPDATE`,
-      [userId, userId],
-    );
-    if (!items.length) fail('Giỏ hàng đang trống hoặc không có sản phẩm hợp lệ', 422);
-
-    let subtotal = 0;
-    for (const item of items) {
-      if (item.stock_quantity < item.quantity) {
-        fail(`Sản phẩm ${item.sku} không đủ tồn kho`, 409);
-      }
-      item.subtotal = Number(item.price) * item.quantity;
-      subtotal += item.subtotal;
+const getCartItems = async (connection, userId, lock = false) => {
+  const [items] = await connection.execute(
+    `SELECT ci.id, ci.product_variant_id, ci.item_type, ci.configuration_json,
+            ci.price_adjustment, ci.quantity,
+            (pv.price + ci.price_adjustment) AS price, pv.sku,
+            pv.variant_name, pv.stock_quantity, p.name AS product_name
+     FROM cart_items ci
+     JOIN carts c ON c.id = ci.cart_id AND c.user_id = ?
+     JOIN product_variants pv ON pv.id = ci.product_variant_id
+     JOIN products p ON p.id = pv.product_id
+     WHERE c.user_id = ? AND pv.status = 'ACTIVE' AND p.status = 'ACTIVE'
+     ${lock ? 'FOR UPDATE' : ''}`,
+    [userId, userId],
+  );
+  if (!items.length) fail('Giỏ hàng đang trống hoặc không có sản phẩm hợp lệ', 422);
+  let subtotal = 0;
+  for (const item of items) {
+    if (Number(item.stock_quantity) < Number(item.quantity)) {
+      fail(`Sản phẩm ${item.sku} không đủ tồn kho`, 409);
     }
-    const voucher = await validateVoucher(connection, body.voucherCode, subtotal);
-    const shippingFee = 0;
-    const total = subtotal + shippingFee - voucher.discount;
+    item.subtotal = Number(item.price) * Number(item.quantity);
+    subtotal += item.subtotal;
+  }
+  return { items, subtotal };
+};
+
+const resolveFulfillment = async (connection, userId, input, subtotal, lock = false) => {
+  if (input.fulfillmentMethod === 'PICKUP') {
+    const storeId = idOf(input.pickupStoreId, 'pickupStoreId');
+    const [storeRows] = await connection.execute(
+      `SELECT * FROM stores WHERE id = ? AND status = 'ACTIVE' ${lock ? 'FOR UPDATE' : ''}`,
+      [storeId],
+    );
+    const store = storeRows[0];
+    if (!store) fail('Cửa hàng nhận hàng không hợp lệ', 404);
+    const recipientName = String(input.recipientName || '').trim();
+    const recipientPhone = String(input.recipientPhone || '').replace(/\s/g, '');
+    if (!recipientName || recipientName.length > 150) {
+      fail('Tên người nhận tại cửa hàng không hợp lệ', 400);
+    }
+    if (!/^(?:\+84|0)\d{9,10}$/.test(recipientPhone)) {
+      fail('Số điện thoại người nhận không hợp lệ', 400);
+    }
+    return {
+      addressId: null,
+      pickupStoreId: store.id,
+      shippingMethodCode: null,
+      shippingFee: 0,
+      recipientName,
+      recipientPhone,
+      deliveryAddress: [store.address_line, store.ward, store.district, store.province]
+        .filter(Boolean)
+        .join(', '),
+      latitude: store.latitude,
+      longitude: store.longitude,
+      store,
+      shippingMethod: null,
+    };
+  }
+
+  const addressId = idOf(input.addressId, 'addressId');
+  const [addressRows] = await connection.execute(
+    `SELECT * FROM addresses WHERE id = ? AND user_id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    [addressId, userId],
+  );
+  const address = addressRows[0];
+  if (!address) fail('Địa chỉ không tồn tại hoặc không thuộc user', 404);
+  const shippingMethodCode = String(input.shippingMethodCode || 'STANDARD').toUpperCase();
+  const [methodRows] = await connection.execute(
+    `SELECT * FROM shipping_methods WHERE code = ? AND status = 'ACTIVE'
+     ${lock ? 'FOR UPDATE' : ''}`,
+    [shippingMethodCode],
+  );
+  const shippingMethod = methodRows[0];
+  if (!shippingMethod) fail('Phương thức vận chuyển không hợp lệ', 400);
+  const shippingFee =
+    shippingMethod.free_shipping_threshold !== null &&
+    subtotal >= Number(shippingMethod.free_shipping_threshold)
+      ? 0
+      : Number(shippingMethod.base_fee);
+  return {
+    addressId: address.id,
+    pickupStoreId: null,
+    shippingMethodCode: shippingMethod.code,
+    shippingFee,
+    recipientName: address.receiver_name,
+    recipientPhone: address.receiver_phone,
+    deliveryAddress: [address.address_line, address.ward, address.district, address.province]
+      .filter(Boolean)
+      .join(', '),
+    latitude: address.latitude,
+    longitude: address.longitude,
+    store: null,
+    shippingMethod,
+  };
+};
+
+const options = async () => {
+  const [stores] = await db.promise().execute(
+    "SELECT * FROM stores WHERE status = 'ACTIVE' ORDER BY province, name",
+  );
+  const [shippingMethods] = await db.promise().execute(
+    "SELECT * FROM shipping_methods WHERE status = 'ACTIVE' ORDER BY sort_order, id",
+  );
+  return { stores, shippingMethods, specialRequests: [...SPECIAL_REQUESTS] };
+};
+
+const quote = async (userId, body) => {
+  const input = normalizeCheckout(body);
+  const connection = db.promise();
+  const { items, subtotal } = await getCartItems(connection, userId);
+  const fulfillment = await resolveFulfillment(connection, userId, input, subtotal);
+  const voucher = await validateVoucher(connection, userId, input.voucherCode, subtotal);
+  return {
+    items,
+    subtotal,
+    shippingFee: fulfillment.shippingFee,
+    discountAmount: voucher.discount,
+    totalAmount: subtotal + fulfillment.shippingFee - voucher.discount,
+    voucherCode: voucher.code,
+    fulfillmentMethod: input.fulfillmentMethod,
+    shippingMethod: fulfillment.shippingMethod,
+    pickupStore: fulfillment.store,
+  };
+};
+
+const checkout = async (userId, body) => {
+  const input = normalizeCheckout(body, true);
+  return db.withTransaction(async (connection) => {
+    const [existingRows] = await connection.execute(
+      'SELECT id FROM orders WHERE user_id = ? AND idempotency_key = ? LIMIT 1',
+      [userId, input.idempotencyKey],
+    );
+    if (existingRows[0]) {
+      return getById(userId, existingRows[0].id, connection);
+    }
+
+    const { items, subtotal } = await getCartItems(connection, userId, true);
+    const fulfillment = await resolveFulfillment(connection, userId, input, subtotal, true);
+    const voucher = await validateVoucher(
+      connection,
+      userId,
+      input.voucherCode,
+      subtotal,
+      true,
+    );
+    const total = subtotal + fulfillment.shippingFee - voucher.discount;
     const [orderResult] = await connection.execute(
       `INSERT INTO orders
-       (order_code, order_type, user_id, address_id, delivery_receiver_name,
+       (order_code, order_type, user_id, address_id, fulfillment_method,
+        pickup_store_id, shipping_method_code, special_requests,
+        delivery_receiver_name,
         delivery_phone, delivery_address, delivery_latitude, delivery_longitude,
-        subtotal, shipping_fee, discount_amount, total_amount, voucher_code, note)
-       VALUES (?, 'READY_PRODUCT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        subtotal, shipping_fee, discount_amount, total_amount, voucher_code,
+        idempotency_key, note)
+       VALUES (?, 'READY_PRODUCT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         orderCode(),
         userId,
-        address.id,
-        address.receiver_name,
-        address.receiver_phone,
-        [address.address_line, address.ward, address.district, address.province]
-          .filter(Boolean)
-          .join(', '),
-        address.latitude,
-        address.longitude,
+        fulfillment.addressId,
+        input.fulfillmentMethod,
+        fulfillment.pickupStoreId,
+        fulfillment.shippingMethodCode,
+        JSON.stringify(input.specialRequests),
+        fulfillment.recipientName,
+        fulfillment.recipientPhone,
+        fulfillment.deliveryAddress,
+        fulfillment.latitude,
+        fulfillment.longitude,
         subtotal,
-        shippingFee,
+        fulfillment.shippingFee,
         voucher.discount,
         total,
         voucher.code,
-        body.note || null,
+        input.idempotencyKey,
+        input.note,
       ],
     );
     const orderId = orderResult.insertId;
     for (const item of items) {
       await connection.execute(
         `INSERT INTO order_items
-         (order_id, product_variant_id, product_name, variant_name, sku,
-          unit_price, quantity, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (order_id, product_variant_id, item_type, configuration_json,
+          product_name, variant_name, sku, unit_price, quantity, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           orderId,
           item.product_variant_id,
+          item.item_type,
+          item.configuration_json,
           item.product_name,
           item.variant_name,
           item.sku,
@@ -143,10 +318,14 @@ const checkout = async (userId, body) => {
         [orderId, voucher.id, voucher.code, voucher.discount],
       );
       await connection.execute('UPDATE vouchers SET used_count = used_count + 1 WHERE id = ?', [voucher.id]);
+      await connection.execute(
+        'INSERT INTO voucher_usages (voucher_id, user_id, order_id) VALUES (?, ?, ?)',
+        [voucher.id, userId, orderId],
+      );
     }
     await connection.execute(
-      "INSERT INTO payments (order_id, method, status, amount) VALUES (?, 'COD', 'PENDING', ?)",
-      [orderId, total],
+      "INSERT INTO payments (order_id, method, status, amount) VALUES (?, ?, 'PENDING', ?)",
+      [orderId, input.paymentMethod, total],
     );
     await connection.execute('DELETE ci FROM cart_items ci JOIN carts c ON c.id = ci.cart_id WHERE c.user_id = ?', [userId]);
     return getById(userId, orderId, connection);
@@ -252,6 +431,9 @@ const updateStatus = async (idValue, status, reason) => {
 };
 
 const checkoutCustom = async (userId, buildIdValue, body) => {
+  if (body.note && String(body.note).length > 500) {
+    fail('Ghi chú đơn hàng không được vượt quá 500 ký tự', 400);
+  }
   const buildId = idOf(buildIdValue, 'customBuildId');
   const addressId = idOf(body.addressId, 'addressId');
   return db.withTransaction(async (connection) => {
@@ -282,7 +464,7 @@ const checkoutCustom = async (userId, buildIdValue, body) => {
       item.subtotal = Number(item.unit_price) * item.quantity;
       subtotal += item.subtotal;
     }
-    const voucher = await validateVoucher(connection, body.voucherCode, subtotal);
+    const voucher = await validateVoucher(connection, userId, body.voucherCode, subtotal, true);
     const total = subtotal - voucher.discount;
     const address = addressRows[0];
     const [result] = await connection.execute(
@@ -320,6 +502,10 @@ const checkoutCustom = async (userId, buildIdValue, body) => {
         [orderId, voucher.id, voucher.code, voucher.discount],
       );
       await connection.execute('UPDATE vouchers SET used_count = used_count + 1 WHERE id = ?', [voucher.id]);
+      await connection.execute(
+        'INSERT INTO voucher_usages (voucher_id, user_id, order_id) VALUES (?, ?, ?)',
+        [voucher.id, userId, orderId],
+      );
     }
     await connection.execute(
       "INSERT INTO payments (order_id, method, status, amount) VALUES (?, 'COD', 'PENDING', ?)",
@@ -330,4 +516,15 @@ const checkoutCustom = async (userId, buildIdValue, body) => {
   });
 };
 
-module.exports = { checkout, checkoutCustom, getById, list, cancel, updateStatus, fail, idOf };
+module.exports = {
+  options,
+  quote,
+  checkout,
+  checkoutCustom,
+  getById,
+  list,
+  cancel,
+  updateStatus,
+  fail,
+  idOf,
+};

@@ -41,6 +41,19 @@ npm start
 
 Server chạy tại `http://localhost:8000`.
 
+## Seed catalog phát triển
+
+Tạo 60 sản phẩm cho mỗi category catalog hiện có, kèm một variant và một ảnh
+cho mỗi sản phẩm:
+
+```bash
+npm run seed:catalog
+```
+
+Seed sử dụng slug/SKU có prefix `seed60-` và chạy lại an toàn: bản ghi cũ được
+cập nhật, không tạo duplicate. Script chỉ tác động `products`,
+`product_variants` và `product_images`; không tạo user, order hoặc payment.
+
 ## 4. Test API bằng curl
 
 ### Đăng ký

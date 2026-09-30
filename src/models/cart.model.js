@@ -9,19 +9,49 @@ const CartModel = {
   findWithItems: async (userId) => {
     const cart = await CartModel.findOrCreate(userId);
     const [items] = await db.promise().execute(`
-      SELECT ci.id, ci.product_variant_id, ci.quantity, pv.sku, pv.variant_name,
-             pv.price, p.id AS product_id, p.name AS product_name
+      SELECT ci.id, ci.product_variant_id, ci.item_type, ci.configuration_key,
+             ci.configuration_json, ci.price_adjustment, ci.quantity,
+             pv.sku, pv.variant_name,
+             (pv.price + ci.price_adjustment) AS price,
+             (COALESCE(pv.compare_at_price, pv.price) + ci.price_adjustment) AS compare_at_price,
+             pv.price AS base_price, pv.stock_quantity,
+             pv.warranty_months, pv.status AS variant_status,
+             p.id AS product_id, p.name AS product_name, p.thumbnail_url,
+             p.status AS product_status
       FROM cart_items ci JOIN carts c ON c.id = ci.cart_id
       JOIN product_variants pv ON pv.id = ci.product_variant_id
       JOIN products p ON p.id = pv.product_id
       WHERE c.id = ? ORDER BY ci.created_at DESC`, [cart.id]);
     return { ...cart, items };
   },
-  addItem: async (userId, variantId, quantity) => {
+  findOwnedItemWithStock: async (userId, itemId) => {
+    const [rows] = await db.promise().execute(
+      `SELECT ci.id, ci.quantity, pv.stock_quantity
+       FROM cart_items ci
+       JOIN carts c ON c.id = ci.cart_id
+       JOIN product_variants pv ON pv.id = ci.product_variant_id
+       WHERE ci.id = ? AND c.user_id = ?
+       LIMIT 1`,
+      [itemId, userId],
+    );
+    return rows[0];
+  },
+  addItem: async (userId, variantId, quantity, configured = {}) => {
     const cart = await CartModel.findOrCreate(userId);
     await db.promise().execute(`
-      INSERT INTO cart_items (cart_id, product_variant_id, quantity) VALUES (?, ?, ?)
-      ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`, [cart.id, variantId, quantity]);
+      INSERT INTO cart_items
+        (cart_id, product_variant_id, item_type, configuration_key,
+         configuration_json, price_adjustment, quantity)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`, [
+      cart.id,
+      variantId,
+      configured.itemType || 'PRODUCT',
+      configured.configurationKey || '',
+      configured.configuration ? JSON.stringify(configured.configuration) : null,
+      configured.priceAdjustment || 0,
+      quantity,
+    ]);
     return CartModel.findWithItems(userId);
   },
   updateItem: async (userId, itemId, quantity) => {

@@ -3,10 +3,9 @@ const express = require('express');
 const router = express.Router();
 
 const AddressController = require('../controllers/address.controller');
+const { authenticate } = require('../middlewares/authorization.middleware');
 
-// Nếu project có auth middleware:
-// const authMiddleware = require('../middlewares/auth.middleware');
-// router.use(authMiddleware);
+router.use(authenticate);
 
 // Lấy tất cả địa chỉ của user
 router.get('/', AddressController.getAll);

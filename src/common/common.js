@@ -47,6 +47,7 @@ const withTransaction = async (work) => {
 
 module.exports = {
   promise: () => promisePool,
+  execute: (...args) => promisePool.execute(...args),
   pool: db,
   getConnection,
   beginTransaction,

@@ -12,7 +12,10 @@ const handle = (action) => async (req, res) => {
 };
 
 module.exports = {
-  create: handle((req) => service.checkout(req.user.id, req.body)),
+  create: handle((req) => service.checkout(req.user.id, {
+    ...req.body,
+    idempotencyKey: req.get('Idempotency-Key') || req.body.idempotencyKey,
+  })),
   list: handle((req) => service.list(req.user.id, req.user.role)),
   getOne: handle((req) => service.getById(req.user.id, req.params.id, undefined, req.user.role)),
   cancel: handle((req) => service.cancel(req.user.id, req.params.id, req.body.reason)),

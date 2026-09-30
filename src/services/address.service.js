@@ -1,5 +1,71 @@
 const AddressModel = require('../models/address.model');
 
+const fail = (message) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  throw error;
+};
+
+const normalizeAddress = (data = {}) => {
+  const requiredText = (value, label, maxLength) => {
+    if (typeof value !== 'string' || !value.trim()) {
+      fail(`${label} là bắt buộc`);
+    }
+    const normalized = value.trim();
+    if (normalized.length > maxLength) {
+      fail(`${label} không được vượt quá ${maxLength} ký tự`);
+    }
+    return normalized;
+  };
+  const optionalText = (value, label, maxLength) => {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string') fail(`${label} không hợp lệ`);
+    const normalized = value.trim();
+    if (normalized.length > maxLength) {
+      fail(`${label} không được vượt quá ${maxLength} ký tự`);
+    }
+    return normalized || null;
+  };
+
+  const receiverName = requiredText(data.receiver_name, 'Tên người nhận', 150);
+  const receiverPhone = requiredText(data.receiver_phone, 'Số điện thoại', 20)
+    .replace(/\s/g, '');
+  if (!/^(?:\+84|0)\d{9,10}$/.test(receiverPhone)) {
+    fail('Số điện thoại Việt Nam không hợp lệ');
+  }
+
+  const hasLatitude = data.latitude !== undefined && data.latitude !== null && data.latitude !== '';
+  const hasLongitude = data.longitude !== undefined && data.longitude !== null && data.longitude !== '';
+  if (hasLatitude !== hasLongitude) {
+    fail('latitude và longitude phải được gửi cùng nhau');
+  }
+
+  let latitude = null;
+  let longitude = null;
+  if (hasLatitude && hasLongitude) {
+    latitude = Number(data.latitude);
+    longitude = Number(data.longitude);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+      fail('latitude phải nằm trong khoảng -90 đến 90');
+    }
+    if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      fail('longitude phải nằm trong khoảng -180 đến 180');
+    }
+  }
+
+  return {
+    receiver_name: receiverName,
+    receiver_phone: receiverPhone,
+    address_line: requiredText(data.address_line, 'Địa chỉ', 255),
+    ward: optionalText(data.ward, 'Phường/xã', 100),
+    district: optionalText(data.district, 'Quận/huyện', 100),
+    province: requiredText(data.province, 'Tỉnh/thành phố', 100),
+    latitude,
+    longitude,
+    is_default: data.is_default === true || Number(data.is_default) === 1,
+  };
+};
+
 const AddressService = {
   // =========================
   // LẤY DANH SÁCH
@@ -29,51 +95,16 @@ const AddressService = {
   // TẠO ĐỊA CHỈ
   // =========================
   create: async (userId, data) => {
-    const {
-      receiver_name,
-      receiver_phone,
-      address_line,
-      ward,
-      district,
-      province,
-      latitude,
-      longitude,
-      is_default,
-    } = data;
-
-    // Validate
-    if (!receiver_name) {
-      throw new Error('Vui lòng nhập tên người nhận');
-    }
-
-    if (!receiver_phone) {
-      throw new Error('Vui lòng nhập số điện thoại');
-    }
-
-    if (!address_line) {
-      throw new Error('Vui lòng nhập địa chỉ');
-    }
-
-    if (!province) {
-      throw new Error('Vui lòng nhập tỉnh/thành phố');
-    }
+    const normalized = normalizeAddress(data);
 
     // Nếu đặt làm mặc định
-    if (is_default === true) {
+    if (normalized.is_default) {
       await AddressModel.clearDefaultByUserId(userId);
     }
 
     const id = await AddressModel.create({
       user_id: userId,
-      receiver_name,
-      receiver_phone,
-      address_line,
-      ward,
-      district,
-      province,
-      latitude,
-      longitude,
-      is_default,
+      ...normalized,
     });
 
     return await AddressModel.findById(id);
@@ -93,50 +124,14 @@ const AddressService = {
       throw new Error('Bạn không có quyền cập nhật địa chỉ này');
     }
 
-    const {
-      receiver_name,
-      receiver_phone,
-      address_line,
-      ward,
-      district,
-      province,
-      latitude,
-      longitude,
-      is_default,
-    } = data;
-
-    if (!receiver_name) {
-      throw new Error('Vui lòng nhập tên người nhận');
-    }
-
-    if (!receiver_phone) {
-      throw new Error('Vui lòng nhập số điện thoại');
-    }
-
-    if (!address_line) {
-      throw new Error('Vui lòng nhập địa chỉ');
-    }
-
-    if (!province) {
-      throw new Error('Vui lòng nhập tỉnh/thành phố');
-    }
+    const normalized = normalizeAddress(data);
 
     // Nếu cập nhật thành mặc định
-    if (is_default === true) {
+    if (normalized.is_default) {
       await AddressModel.clearDefaultByUserId(userId);
     }
 
-    await AddressModel.update(id, {
-      receiver_name,
-      receiver_phone,
-      address_line,
-      ward,
-      district,
-      province,
-      latitude,
-      longitude,
-      is_default,
-    });
+    await AddressModel.update(id, normalized);
 
     return await AddressModel.findById(id);
   },
