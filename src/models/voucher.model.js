@@ -11,6 +11,13 @@ const VoucherModel = {
     const [rows] = await db.promise().execute('SELECT * FROM vouchers WHERE code = ? LIMIT 1', [normalizeCode(code)]);
     return rows[0];
   },
+  findById: async (id) => {
+    const [rows] = await db.promise().execute(
+      'SELECT id, code, name FROM vouchers WHERE id = ? LIMIT 1',
+      [id],
+    );
+    return rows[0];
+  },
   create: async (data) => {
     const [r] = await db.promise().execute(`INSERT INTO vouchers (code, name, description, discount_type, discount_value, min_order_value, max_discount, start_at, end_at, usage_limit, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [normalizeCode(data.code), data.name || data.code, data.description || null, data.type, data.value, data.min_order_amount || 0, data.max_discount_amount || null, data.start_at, data.end_at, data.usage_limit || null, data.status || 'ACTIVE']);

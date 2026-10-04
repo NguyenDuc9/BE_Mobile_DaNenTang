@@ -30,7 +30,7 @@ const ProductImageController = {
         data: image,
       });
     } catch (error) {
-      res.status(404).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         message: error.message,
       });
@@ -49,7 +49,7 @@ const ProductImageController = {
         data: images,
       });
     } catch (error) {
-      res.status(404).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         message: error.message,
       });
@@ -67,7 +67,7 @@ const ProductImageController = {
         data: image,
       });
     } catch (error) {
-      res.status(400).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         message: error.message,
       });
@@ -87,7 +87,7 @@ const ProductImageController = {
         data: image,
       });
     } catch (error) {
-      res.status(400).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         message: error.message,
       });
@@ -106,7 +106,7 @@ const ProductImageController = {
         message: 'Xóa product image thành công',
       });
     } catch (error) {
-      res.status(404).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         message: error.message,
       });

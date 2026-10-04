@@ -202,6 +202,28 @@ user hiện tại; giá, tồn kho, voucher và tổng tiền được tính l�
 - Inventory: `GET /api/inventory/transactions`,
   `POST /api/inventory/import`, `POST /api/inventory/adjustment`.
 
+## Tải ảnh và chọn sản phẩm khuyến mại
+
+Ảnh tải lên được lưu trong thư mục `uploads/` của backend. Endpoint yêu cầu
+JWT của staff/admin, nhận multipart field `image`, giới hạn 5 MB và chấp nhận
+JPEG, PNG, WEBP hoặc GIF:
+
+- `POST /api/uploads` — trả về `data.url` để lưu vào `products.thumbnail_url`
+  hoặc `product_images.image_url`.
+- `GET /api/uploads/:filename` — phục vụ ảnh đã tải lên.
+- `GET /api/product-images/product/:productId` — lấy ảnh theo thứ tự hiển thị.
+- Các thao tác thêm, sửa, xóa ảnh dùng `/api/product-images`.
+
+Để liên kết một voucher với nhiều sản phẩm, backend tự áp dụng migration
+`migrations/20261001_create_voucher_products.sql` khi khởi động; có thể chạy
+file này thủ công sau khi tạo schema nếu cần:
+
+- `GET /api/vouchers/:id/products` — lấy sản phẩm đang áp dụng.
+- `PUT /api/vouchers/:id/products` — thay danh sách bằng
+  `{ "productIds": [1, 2] }`; gửi mảng rỗng để bỏ liên kết.
+
+Các endpoint quản trị voucher và upload ảnh yêu cầu role `staff` hoặc `admin`.
+
 ## Build, warranty và notification API
 
 - Build template: `GET/POST /api/build-templates`, `GET/PUT /:id`,

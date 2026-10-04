@@ -18,8 +18,11 @@ const ProductImageRouter = require('./productImage.router');
 const ProductVariantRouter = require('./productVariant.router');
 const FavoriteRouter = require('./favorite.router');
 const ReviewRouter = require('./review.router');
+const UploadRouter = require('./upload.router');
+const paginateResponse = require('../middlewares/pagination.middleware');
 const router = express.Router();
 
+router.use(paginateResponse);
 router.use('/categories', categoryRouter);
 router.use('/roles', roleRouter);
 router.use('/users', userRouter);
@@ -40,4 +43,5 @@ router.use('/product-images', ProductImageRouter);
 router.use('/product-variants', ProductVariantRouter);
 router.use('/favorites', FavoriteRouter);
 router.use('/reviews', ReviewRouter);
+router.use('/uploads', UploadRouter);
 module.exports = router;

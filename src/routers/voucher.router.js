@@ -1,11 +1,14 @@
 const express = require('express');
 const controller = require('../controllers/voucher.controller');
+const voucherProductController = require('../controllers/voucher-product.controller');
 const { authenticate, authorize } = require('../middlewares/authorization.middleware');
 const { positiveId } = require('../middlewares/validation.middleware');
 const router = express.Router();
 router.get('/available', authenticate, authorize('customer', 'staff', 'admin'), controller.available);
 router.get('/:code', authenticate, authorize('customer', 'staff', 'admin'), controller.find);
 router.use(authenticate, authorize('staff', 'admin'));
+router.get('/:id/products', positiveId('id'), voucherProductController.list);
+router.put('/:id/products', positiveId('id'), voucherProductController.replace);
 router.get('/', controller.list);
 router.post('/', controller.create);
 router.put('/:id', positiveId('id'), controller.update);
