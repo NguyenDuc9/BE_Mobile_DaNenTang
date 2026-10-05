@@ -27,7 +27,14 @@ const SPECIAL_REQUESTS = new Set([
 ]);
 const PAYMENT_METHODS = new Set(['COD', 'BANK_TRANSFER', 'MOMO', 'VNPAY']);
 
-const validateVoucher = async (connection, userId, code, subtotal, lock = false) => {
+const validateVoucher = async (
+  connection,
+  userId,
+  code,
+  subtotal,
+  lock = false,
+  items = [],
+) => {
   if (!code) return { id: null, code: null, discount: 0 };
   const [rows] = await connection.execute(
     `SELECT * FROM vouchers
@@ -42,6 +49,26 @@ const validateVoucher = async (connection, userId, code, subtotal, lock = false)
   if (subtotal < Number(voucher.min_order_value)) {
     fail('Đơn hàng chưa đạt giá trị tối thiểu của voucher', 422);
   }
+  const [voucherProducts] = await connection.execute(
+    `SELECT product_id FROM voucher_products
+     WHERE voucher_id = ? ${lock ? 'FOR UPDATE' : ''}`,
+    [voucher.id],
+  );
+  const eligibleProducts = new Set(
+    voucherProducts.map((item) => Number(item.product_id)),
+  );
+  const eligibleSubtotal = eligibleProducts.size
+    ? items.reduce(
+        (sum, item) =>
+          eligibleProducts.has(Number(item.product_id))
+            ? sum + Number(item.subtotal)
+            : sum,
+        0,
+      )
+    : subtotal;
+  if (eligibleSubtotal <= 0) {
+    fail('Voucher không áp dụng cho sản phẩm trong đơn hàng', 422);
+  }
   if (voucher.user_usage_limit !== null) {
     const [usageRows] = await connection.execute(
       'SELECT COUNT(*) AS count FROM voucher_usages WHERE voucher_id = ? AND user_id = ?',
@@ -53,7 +80,7 @@ const validateVoucher = async (connection, userId, code, subtotal, lock = false)
   }
   let discount =
     voucher.discount_type === 'PERCENT'
-      ? (subtotal * Number(voucher.discount_value)) / 100
+      ? (eligibleSubtotal * Number(voucher.discount_value)) / 100
       : Number(voucher.discount_value);
   if (voucher.max_discount !== null) {
     discount = Math.min(discount, Number(voucher.max_discount));
@@ -61,7 +88,7 @@ const validateVoucher = async (connection, userId, code, subtotal, lock = false)
   return {
     id: voucher.id,
     code: voucher.code,
-    discount: Math.max(0, Math.min(discount, subtotal)),
+    discount: Math.max(0, Math.min(discount, eligibleSubtotal)),
   };
 };
 
@@ -103,7 +130,7 @@ const normalizeCheckout = (body = {}, requireIdempotency = false) => {
 
 const getCartItems = async (connection, userId, lock = false) => {
   const [items] = await connection.execute(
-    `SELECT ci.id, ci.product_variant_id, ci.item_type, ci.configuration_json,
+    `SELECT ci.id, ci.product_variant_id, pv.product_id, ci.item_type, ci.configuration_json,
             ci.price_adjustment, ci.quantity,
             (pv.price + ci.price_adjustment) AS price, pv.sku,
             pv.variant_name, pv.stock_quantity, p.name AS product_name
@@ -213,7 +240,14 @@ const quote = async (userId, body) => {
   const connection = db.promise();
   const { items, subtotal } = await getCartItems(connection, userId);
   const fulfillment = await resolveFulfillment(connection, userId, input, subtotal);
-  const voucher = await validateVoucher(connection, userId, input.voucherCode, subtotal);
+  const voucher = await validateVoucher(
+    connection,
+    userId,
+    input.voucherCode,
+    subtotal,
+    false,
+    items,
+  );
   return {
     items,
     subtotal,
@@ -246,6 +280,7 @@ const checkout = async (userId, body) => {
       input.voucherCode,
       subtotal,
       true,
+      items,
     );
     const total = subtotal + fulfillment.shippingFee - voucher.discount;
     const [orderResult] = await connection.execute(
@@ -464,7 +499,14 @@ const checkoutCustom = async (userId, buildIdValue, body) => {
       item.subtotal = Number(item.unit_price) * item.quantity;
       subtotal += item.subtotal;
     }
-    const voucher = await validateVoucher(connection, userId, body.voucherCode, subtotal, true);
+    const voucher = await validateVoucher(
+      connection,
+      userId,
+      body.voucherCode,
+      subtotal,
+      true,
+      items,
+    );
     const total = subtotal - voucher.discount;
     const address = addressRows[0];
     const [result] = await connection.execute(
