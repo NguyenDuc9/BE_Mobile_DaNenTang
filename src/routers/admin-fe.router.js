@@ -69,14 +69,28 @@ const handle = (action) => async (req, res) => {
   }
 };
 
-const listFavorites = (req, res) =>
-  pagedResponse(
+const listFavorites = (req, res) => {
+  const search = String(req.query.q || '').trim();
+  const where = search
+    ? 'WHERE CAST(f.id AS CHAR) LIKE ? OR CAST(f.user_id AS CHAR) LIKE ? OR CAST(f.product_id AS CHAR) LIKE ? OR u.full_name LIKE ? OR p.name LIKE ?'
+    : '';
+  const params = search ? Array(5).fill(`%${search}%`) : [];
+  return pagedResponse(
     req,
     res,
-    `SELECT f.id, f.user_id, f.product_id, f.created_at
-     FROM favorites f ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?`,
-    'SELECT COUNT(*) AS total FROM favorites',
+    `SELECT f.id, f.user_id, f.product_id, f.created_at,
+            u.full_name, p.name AS product_name
+     FROM favorites f
+     JOIN users u ON u.id = f.user_id
+     JOIN products p ON p.id = f.product_id
+     ${where} ORDER BY f.created_at DESC, f.id DESC LIMIT ? OFFSET ?`,
+    `SELECT COUNT(*) AS total
+     FROM favorites f
+     JOIN users u ON u.id = f.user_id
+     JOIN products p ON p.id = f.product_id ${where}`,
+    params,
   );
+};
 
 const createFavorite = async (req, res) => {
   const body = req.body || {};
@@ -98,14 +112,28 @@ const deleteFavorite = async (req, res) => {
   return res.status(204).end();
 };
 
-const listReviews = (req, res) =>
-  pagedResponse(
+const listReviews = (req, res) => {
+  const search = String(req.query.q || '').trim();
+  const where = search
+    ? 'WHERE CAST(r.id AS CHAR) LIKE ? OR CAST(r.user_id AS CHAR) LIKE ? OR CAST(r.product_id AS CHAR) LIKE ? OR CAST(r.rating AS CHAR) LIKE ? OR r.status LIKE ? OR r.comment LIKE ? OR u.full_name LIKE ? OR p.name LIKE ?'
+    : '';
+  const params = search ? Array(8).fill(`%${search}%`) : [];
+  return pagedResponse(
     req,
     res,
-    `SELECT id, user_id, product_id, rating, comment, status, created_at, updated_at
-     FROM reviews ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
-    'SELECT COUNT(*) AS total FROM reviews',
+    `SELECT r.id, r.user_id, r.product_id, r.rating, r.comment, r.status,
+            r.created_at, r.updated_at, u.full_name, p.name AS product_name
+     FROM reviews r
+     JOIN users u ON u.id = r.user_id
+     JOIN products p ON p.id = r.product_id
+     ${where} ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?`,
+    `SELECT COUNT(*) AS total
+     FROM reviews r
+     JOIN users u ON u.id = r.user_id
+     JOIN products p ON p.id = r.product_id ${where}`,
+    params,
   );
+};
 
 const validateReview = (body) => {
   body = body || {};
@@ -187,6 +215,129 @@ const voucherProducts = async (req, res) => {
   );
 };
 
+const voucherProductCatalog = async (req, res) => {
+  const voucherId = positiveId(req.params.id, 'voucherId');
+  const [voucherRows] = await db.execute(
+    `SELECT id, discount_type, discount_value, max_discount
+     FROM vouchers WHERE id = ?`,
+    [voucherId],
+  );
+  const voucher = voucherRows[0];
+  if (!voucher) fail('Không tìm thấy voucher', 404);
+
+  const pagination = pageOptions(req.query);
+  const search = String(req.query.q || '').trim();
+  const searchWhere = search
+    ? 'WHERE p.name LIKE ? OR p.slug LIKE ? OR CAST(p.id AS CHAR) LIKE ?'
+    : '';
+  const searchParams = search ? Array(3).fill(`%${search}%`) : [];
+  const [[rows], [countRows]] = await Promise.all([
+    db.execute(
+      `SELECT p.id, p.name, p.slug, p.thumbnail_url,
+              COALESCE(prices.current_price, 0) AS current_price,
+              (vp.product_id IS NOT NULL) AS is_promotional
+       FROM products p
+       LEFT JOIN voucher_products vp
+         ON vp.product_id = p.id AND vp.voucher_id = ?
+       LEFT JOIN (
+         SELECT product_id, MIN(price) AS current_price
+         FROM product_variants
+         WHERE status = 'ACTIVE'
+         GROUP BY product_id
+       ) prices ON prices.product_id = p.id
+       ${searchWhere}
+       ORDER BY p.name, p.id LIMIT ? OFFSET ?`,
+      [voucherId, ...searchParams, pagination.limit, pagination.offset],
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total FROM products p ${searchWhere}`,
+      searchParams,
+    ),
+  ]);
+  const total = Number(countRows[0].total);
+  const data = rows.map((product) => {
+    const price = Number(product.current_price);
+    const rawDiscount =
+      voucher.discount_type === 'PERCENT'
+        ? (price * Number(voucher.discount_value)) / 100
+        : Number(voucher.discount_value);
+    const discount = Math.min(
+      price,
+      rawDiscount,
+      voucher.max_discount == null
+        ? Number.POSITIVE_INFINITY
+        : Number(voucher.max_discount),
+    );
+    return {
+      ...product,
+      is_promotional: Boolean(product.is_promotional),
+      current_price: price,
+      discount_amount: discount,
+      discounted_price: Math.max(0, price - discount),
+    };
+  });
+
+  return res.json({
+    data,
+    pagination: {
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+      totalPages: Math.ceil(total / pagination.limit),
+    },
+  });
+};
+
+const dashboard = async (req, res) => {
+  const [[summaryRows], [topProducts]] = await Promise.all([
+    db.execute(
+      `SELECT
+         COALESCE(SUM(CASE
+           WHEN status IN ('DELIVERED', 'COMPLETED')
+             AND created_at >= CURDATE()
+           THEN total_amount ELSE 0 END), 0) AS today_revenue,
+         COALESCE(SUM(CASE
+           WHEN status IN ('DELIVERED', 'COMPLETED')
+             AND created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+           THEN total_amount ELSE 0 END), 0) AS month_revenue,
+         COALESCE(SUM(CASE
+           WHEN status IN ('DELIVERED', 'COMPLETED')
+           THEN total_amount ELSE 0 END), 0) AS lifetime_revenue,
+         COALESCE(SUM(status IN ('DELIVERED', 'COMPLETED')), 0) AS completed_orders
+       FROM orders`,
+    ),
+    db.execute(
+      `SELECT COALESCE(p.id, 0) AS product_id,
+              COALESCE(p.name, oi.product_name) AS product_name,
+              MIN(p.thumbnail_url) AS thumbnail_url,
+              SUM(oi.quantity) AS sold_quantity,
+              SUM(oi.subtotal) AS revenue
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       LEFT JOIN product_variants pv ON pv.id = oi.product_variant_id
+       LEFT JOIN products p ON p.id = pv.product_id
+       WHERE o.status IN ('DELIVERED', 'COMPLETED')
+       GROUP BY COALESCE(p.id, 0), COALESCE(p.name, oi.product_name)
+       ORDER BY sold_quantity DESC, revenue DESC, product_name
+       LIMIT 10`,
+    ),
+  ]);
+  const summary = summaryRows[0];
+  return res.json({
+    data: {
+      todayRevenue: Number(summary.today_revenue),
+      monthRevenue: Number(summary.month_revenue),
+      lifetimeRevenue: Number(summary.lifetime_revenue),
+      completedOrders: Number(summary.completed_orders),
+      bestSellingProducts: topProducts.map((product) => ({
+        ...product,
+        sold_quantity: Number(product.sold_quantity),
+        revenue: Number(product.revenue),
+      })),
+    },
+  });
+};
+
 const setVoucherProducts = async (req, res) => {
   const voucherId = positiveId(req.params.id, 'voucherId');
   const productIdsInput = req.body?.productIds;
@@ -241,7 +392,9 @@ router.get('/reviews', handle(listReviews));
 router.post('/reviews', handle(createReview));
 router.put('/reviews/:id', handle(updateReview));
 router.delete('/reviews/:id', handle(deleteReview));
+router.get('/dashboard', handle(dashboard));
 router.get('/vouchers/:id/products', handle(voucherProducts));
+router.get('/vouchers/:id/product-catalog', handle(voucherProductCatalog));
 router.put('/vouchers/:id/products', handle(setVoucherProducts));
 
 module.exports = router;
