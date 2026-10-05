@@ -26,6 +26,17 @@ const SPECIAL_REQUESTS = new Set([
   'INSPECT_BEFORE_RECEIVING',
 ]);
 const PAYMENT_METHODS = new Set(['COD', 'BANK_TRANSFER', 'MOMO', 'VNPAY']);
+const ORDER_STATUS_LABELS = {
+  PENDING: 'Chờ xác nhận',
+  CONFIRMED: 'Đã xác nhận',
+  PROCESSING: 'Đang chuẩn bị',
+  PACKED: 'Đã đóng gói',
+  SHIPPING: 'Đang giao',
+  DELIVERED: 'Đã giao',
+  COMPLETED: 'Hoàn thành',
+  CANCELLED: 'Đã hủy',
+  DELIVERY_FAILED: 'Giao thất bại',
+};
 
 const validateVoucher = async (
   connection,
@@ -384,6 +395,26 @@ const getById = async (userId, idValue, connection = db.promise(), role) => {
   return { ...rows[0], items };
 };
 
+const restoreOrderInventory = async (connection, userId, orderId, reason) => {
+  const [items] = await connection.execute(
+    'SELECT * FROM order_items WHERE order_id = ?',
+    [orderId],
+  );
+  for (const item of items) {
+    if (!item.product_variant_id) continue;
+    await connection.execute(
+      'UPDATE product_variants SET stock_quantity = stock_quantity + ? WHERE id = ?',
+      [item.quantity, item.product_variant_id],
+    );
+    await connection.execute(
+      `INSERT INTO inventory_transactions
+       (product_variant_id, user_id, type, quantity, reference_type, reference_id, note)
+       VALUES (?, ?, 'CANCEL', ?, 'ORDER', ?, ?)`,
+      [item.product_variant_id, userId, item.quantity, orderId, reason || null],
+    );
+  }
+};
+
 const list = async (userId, role) => {
   const where = role === 'admin' || role === 'staff' ? '' : 'WHERE o.user_id = ?';
   const params = where ? [userId] : [];
@@ -408,20 +439,7 @@ const cancel = async (userId, idValue, reason) => {
     if (!['PENDING', 'CONFIRMED'].includes(order.status)) {
       fail('Đơn hàng không còn ở trạng thái được phép hủy', 409);
     }
-    const [items] = await connection.execute('SELECT * FROM order_items WHERE order_id = ?', [id]);
-    for (const item of items) {
-      if (!item.product_variant_id) continue;
-      await connection.execute(
-        'UPDATE product_variants SET stock_quantity = stock_quantity + ? WHERE id = ?',
-        [item.quantity, item.product_variant_id],
-      );
-      await connection.execute(
-        `INSERT INTO inventory_transactions
-         (product_variant_id, user_id, type, quantity, reference_type, reference_id, note)
-         VALUES (?, ?, 'CANCEL', ?, 'ORDER', ?, ?)`,
-        [item.product_variant_id, userId, item.quantity, id, reason || null],
-      );
-    }
+    await restoreOrderInventory(connection, userId, id, reason);
     await connection.execute(
       "UPDATE orders SET status = 'CANCELLED', cancelled_reason = ? WHERE id = ?",
       [reason || null, id],
@@ -453,13 +471,23 @@ const updateStatus = async (idValue, status, reason) => {
     if (!transitions[order.status].includes(status)) {
       fail('Chuyển trạng thái order không hợp lệ', 409);
     }
+    if (status === 'CANCELLED') {
+      await restoreOrderInventory(connection, order.user_id, id, reason);
+    }
     await connection.execute(
       'UPDATE orders SET status = ?, cancelled_reason = IF(? = \'CANCELLED\', ?, cancelled_reason) WHERE id = ?',
       [status, status, reason || null, id],
     );
     await connection.execute(
       'INSERT INTO notifications (user_id, title, message, type, reference_type, reference_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [order.user_id, 'Cập nhật đơn hàng', `Đơn hàng ${order.order_code} đã chuyển sang ${status}`, 'ORDER_STATUS', 'ORDER', id],
+      [
+        order.user_id,
+        'Cập nhật đơn hàng',
+        `Đơn hàng ${order.order_code}: ${ORDER_STATUS_LABELS[status] || status}`,
+        'ORDER_STATUS',
+        'ORDER',
+        id,
+      ],
     );
     return getById(order.user_id, id, connection);
   });

@@ -27,6 +27,11 @@ const productFrom = `
 const buildFilters = (filters) => {
   const clauses = ["p.status = 'ACTIVE'"];
   const params = [];
+  const addInFilter = (column, values) => {
+    if (!values || values.length === 0) return;
+    clauses.push(`${column} IN (${values.map(() => '?').join(', ')})`);
+    params.push(...values);
+  };
   if (filters.query) {
     clauses.push('(p.name LIKE ? OR b.name LIKE ? OR c.name LIKE ? OR pv.sku LIKE ?)');
     const search = `%${filters.query}%`;
@@ -36,9 +41,22 @@ const buildFilters = (filters) => {
     clauses.push('(c.slug = ? OR c.id = ?)');
     params.push(filters.category, Number(filters.category) || 0);
   }
-  if (filters.brand) {
-    clauses.push('(b.slug = ? OR b.id = ?)');
-    params.push(filters.brand, Number(filters.brand) || 0);
+  if (filters.brand && filters.brand.length > 0) {
+    const values = filters.brand;
+    const numericIds = values.filter((value) => /^\d+$/.test(value));
+    const namesOrSlugs = values.filter((value) => !/^\d+$/.test(value));
+    const conditions = [];
+    if (namesOrSlugs.length) {
+      conditions.push(
+        `(b.name IN (${namesOrSlugs.map(() => '?').join(', ')}) OR b.slug IN (${namesOrSlugs.map(() => '?').join(', ')}))`,
+      );
+      params.push(...namesOrSlugs, ...namesOrSlugs);
+    }
+    if (numericIds.length) {
+      conditions.push(`b.id IN (${numericIds.map(() => '?').join(', ')})`);
+      params.push(...numericIds.map(Number));
+    }
+    clauses.push(`(${conditions.join(' OR ')})`);
   }
   if (filters.minPrice !== null) {
     clauses.push('pv.price >= ?');
@@ -48,6 +66,12 @@ const buildFilters = (filters) => {
     clauses.push('pv.price <= ?');
     params.push(filters.maxPrice);
   }
+  addInFilter('pv.cpu', filters.cpu);
+  addInFilter('pv.ram', filters.ram);
+  addInFilter('pv.storage', filters.storage);
+  addInFilter('pv.gpu', filters.gpu);
+  addInFilter('pv.screen_size', filters.screenSize);
+  addInFilter('pv.refresh_rate', filters.refreshRate);
   if (filters.inStock) clauses.push('pv.stock_quantity > 0');
   return { where: `WHERE ${clauses.join(' AND ')}`, params };
 };
@@ -88,7 +112,68 @@ const CatalogModel = {
     );
     return { rows, total: Number(countRows[0].total) };
   },
+  facets: async (filters) => {
+    const baseFilters = {
+      ...filters,
+      brand: [],
+      cpu: [],
+      ram: [],
+      storage: [],
+      gpu: [],
+      screenSize: [],
+      refreshRate: [],
+      minPrice: null,
+      maxPrice: null,
+      inStock: true,
+    };
+    const { where, params } = buildFilters(baseFilters);
+    const definitions = {
+      brand: { column: 'b.name', label: 'Thương hiệu' },
+      cpu: { column: 'pv.cpu', label: 'CPU' },
+      ram: { column: 'pv.ram', label: 'RAM' },
+      storage: { column: 'pv.storage', label: 'Ổ cứng / SSD' },
+      gpu: { column: 'pv.gpu', label: 'Card đồ họa (GPU)' },
+      screenSize: { column: 'pv.screen_size', label: 'Kích thước màn hình' },
+      refreshRate: { column: 'pv.refresh_rate', label: 'Tần số quét' },
+    };
+    const entries = await Promise.all(
+      Object.entries(definitions).map(async ([key, definition]) => {
+        const [rows] = await db.promise().execute(
+          `SELECT ${definition.column} AS value, COUNT(DISTINCT p.id) AS count
+           ${productFrom}
+           ${where} AND ${definition.column} IS NOT NULL
+             AND TRIM(${definition.column}) <> ''
+           GROUP BY ${definition.column}
+           ORDER BY ${definition.column}`,
+          params,
+        );
+        return [
+          key,
+          {
+            key,
+            label: definition.label,
+            entries: rows.map((row) => ({
+              value: String(row.value),
+              count: Number(row.count),
+            })),
+          },
+        ];
+      }),
+    );
+    const [priceRows] = await db.promise().execute(
+      `SELECT MIN(pv.price) AS min, MAX(pv.price) AS max
+       ${productFrom}
+       ${where}`,
+      params,
+    );
+    return {
+      ...Object.fromEntries(entries),
+      priceRange: {
+        min: Number(priceRows[0]?.min || 0),
+        max: Number(priceRows[0]?.max || 0),
+      },
+    };
+  },
 };
 
 module.exports = CatalogModel;
-

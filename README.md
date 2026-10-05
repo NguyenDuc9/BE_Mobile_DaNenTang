@@ -197,6 +197,18 @@ Body tạo/cập nhật sản phẩm:
 
 `categoryId`, `brandId`, `name` và `slug` là bắt buộc khi tạo. `slug` phải duy nhất; `status` chỉ nhận `DRAFT`, `ACTIVE` hoặc `INACTIVE`. Không thể xóa sản phẩm đang có product variant.
 
+## Mobile catalog API
+
+- `GET /api/catalog/products` trả danh sách sản phẩm đang hoạt động, có phân trang
+  (`page`, `limit`) và hỗ trợ tìm kiếm `q`, danh mục `category`, sắp xếp `sort`,
+  thương hiệu và cấu hình (`brand`, `cpu`, `ram`, `storage`, `gpu`,
+  `screenSize`, `refreshRate`).
+- Lọc giá dùng `minPrice` và `maxPrice`; `inStock=true` chỉ trả sản phẩm còn hàng.
+- Response danh sách có dạng
+  `{ "data": { "items": [], "pagination": { "page": 1, "limit": 20, "total": 0, "totalPages": 0, "hasNextPage": false } } }`.
+- `GET /api/catalog/facets` trả các lựa chọn thương hiệu/cấu hình và khoảng giá;
+  có thể truyền `category` và `q` để giới hạn các lựa chọn theo danh mục/tìm kiếm.
+
 ## Cart, voucher, order và inventory API
 
 Các endpoint dưới đây yêu cầu JWT. Cart và order chỉ thao tác trên dữ liệu của
@@ -219,12 +231,22 @@ user hiện tại; giá, tồn kho, voucher và tổng tiền được tính l�
 
 Các endpoint quản trị mới yêu cầu JWT của `admin` hoặc `staff`:
 
+- Tổng quan: `GET /api/admin-fe/dashboard` trả doanh thu hôm nay, tháng này,
+  tổng doanh thu, số đơn đã giao/hoàn tất và tối đa 10 sản phẩm bán chạy.
+  Doanh thu và sản phẩm bán chạy chỉ tính đơn `DELIVERED`/`COMPLETED`.
 - Favorites: `GET/POST /api/admin-fe/favorites`,
-  `DELETE /api/admin-fe/favorites/:id`.
+  `DELETE /api/admin-fe/favorites/:id`. Danh sách nhận từ khóa `q` để tìm
+  theo ID, tên người dùng hoặc tên sản phẩm.
 - Reviews: `GET/POST /api/admin-fe/reviews`,
-  `PUT/DELETE /api/admin-fe/reviews/:id`.
+  `PUT/DELETE /api/admin-fe/reviews/:id`. Danh sách nhận từ khóa `q` để tìm
+  theo ID, người dùng, sản phẩm, đánh giá hoặc trạng thái.
 - Sản phẩm áp dụng voucher:
-  `GET/PUT /api/admin-fe/vouchers/:id/products`.
+  `GET/PUT /api/admin-fe/vouchers/:id/products`,
+  `GET /api/admin-fe/vouchers/:id/product-catalog?q=...`.
+  Catalog trả giá thấp nhất của biến thể đang hoạt động, trạng thái áp dụng,
+  số tiền giảm và giá tham khảo sau giảm.
+  Với voucher giảm số tiền cố định, giá sau giảm chỉ là tham khảo trên một
+  sản phẩm; lúc thanh toán khoản giảm vẫn áp dụng một lần cho đơn hàng.
 - Upload ảnh: `POST /api/uploads` với multipart field `image`.
   Ảnh JPEG, PNG, WebP hoặc GIF tối đa 5 MB được lưu trong `uploads/` và
   phục vụ tại `/uploads/:filename`.
