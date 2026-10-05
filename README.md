@@ -215,6 +215,24 @@ user hiện tại; giá, tồn kho, voucher và tổng tiền được tính l�
 - Inventory: `GET /api/inventory/transactions`,
   `POST /api/inventory/import`, `POST /api/inventory/adjustment`.
 
+## Admin FE APIs
+
+Các endpoint quản trị mới yêu cầu JWT của `admin` hoặc `staff`:
+
+- Favorites: `GET/POST /api/admin-fe/favorites`,
+  `DELETE /api/admin-fe/favorites/:id`.
+- Reviews: `GET/POST /api/admin-fe/reviews`,
+  `PUT/DELETE /api/admin-fe/reviews/:id`.
+- Sản phẩm áp dụng voucher:
+  `GET/PUT /api/admin-fe/vouchers/:id/products`.
+- Upload ảnh: `POST /api/uploads` với multipart field `image`.
+  Ảnh JPEG, PNG, WebP hoặc GIF tối đa 5 MB được lưu trong `uploads/` và
+  phục vụ tại `/uploads/:filename`.
+
+Chạy `npm run migrate` để tạo bảng liên kết `voucher_products` trên database
+đang sử dụng. Voucher không liên kết sản phẩm nào tiếp tục áp dụng cho toàn bộ
+đơn hàng; khi đã liên kết sản phẩm, phần giảm giá chỉ tính trên các sản phẩm đó.
+
 ## Build, warranty và notification API
 
 - Build template: `GET/POST /api/build-templates`, `GET/PUT /:id`,
