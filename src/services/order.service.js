@@ -388,8 +388,16 @@ const getById = async (userId, idValue, connection = db.promise(), role) => {
     [id, role || '', userId],
   );
   if (!rows[0]) fail('Không tìm thấy đơn hàng', 404);
+  // JOIN product_variants + products để enrich item với product_id và ảnh
+  // — mobile cần product_id để bật nút "Đánh giá" từ OrderDetail mà không
+  // cần gọi thêm API.
   const [items] = await connection.execute(
-    'SELECT * FROM order_items WHERE order_id = ? ORDER BY id',
+    `SELECT oi.*, pv.product_id, p.thumbnail_url AS product_thumbnail
+     FROM order_items oi
+     LEFT JOIN product_variants pv ON pv.id = oi.product_variant_id
+     LEFT JOIN products p ON p.id = pv.product_id
+     WHERE oi.order_id = ?
+     ORDER BY oi.id`,
     [id],
   );
   return { ...rows[0], items };
