@@ -57,11 +57,14 @@ const register = async (req, res) => {
     return res.status(201).json({
       message: 'Đăng ký thành công',
       data: {
-        id: userId,
-        fullName: user.full_name,
-        email: user.email,
-        phone: phone || null,
-        role: user.role_name,
+        token: createToken(user),
+        user: {
+          id: userId,
+          fullName: user.full_name,
+          email: user.email,
+          phone: phone || null,
+          role: user.role_name,
+        },
       },
     });
   } catch (error) {

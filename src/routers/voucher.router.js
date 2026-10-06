@@ -5,6 +5,7 @@ const { positiveId } = require('../middlewares/validation.middleware');
 const router = express.Router();
 router.get('/available', authenticate, authorize('customer', 'staff', 'admin'), controller.available);
 router.get('/:code', authenticate, authorize('customer', 'staff', 'admin'), controller.find);
+router.post('/validate', authenticate, authorize('customer', 'staff', 'admin'), controller.validate);
 router.use(authenticate, authorize('staff', 'admin'));
 router.get('/', controller.list);
 router.post('/', controller.create);

@@ -10,7 +10,8 @@ const sendError = (res, error) => {
 const get = async (req, res) => { try { return res.json({ data: await CartModel.findWithItems(req.user.id) }); } catch (e) { return sendError(res, e); } };
 const add = async (req, res) => {
   const quantity = Number(req.body.quantity);
-  const variantId = Number(req.body.product_variant_id);
+  // Chấp nhận cả `productVariantId` (mobile) và `product_variant_id` (BE)
+  const variantId = Number(req.body.product_variant_id ?? req.body.productVariantId);
   if (!Number.isInteger(variantId) || variantId <= 0 || !Number.isInteger(quantity) || quantity <= 0) return res.status(400).json({ message: 'product_variant_id và quantity không hợp lệ' });
   try {
     const [rows] = await db.promise().execute(`SELECT pv.id, pv.product_id, pv.stock_quantity FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ? AND pv.status = 'ACTIVE' AND p.status = 'ACTIVE'`, [variantId]);
