@@ -31,8 +31,18 @@ const list = async (productIdValue, query) => {
   const productId = idOf(productIdValue, 'productId');
   const page = Math.max(Number(query.page) || 1, 1);
   const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 50);
-  const result = await model.listApproved(productId, limit, (page - 1) * limit);
-  return { ...result, page, limit };
+  // Lọc theo mức rating: 1..5, mặc định trả về tất cả.
+  let ratingFilter = null;
+  if (query.rating != null && query.rating !== '' && query.rating !== 'all') {
+    const parsed = Number(query.rating);
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 5) {
+      ratingFilter = parsed;
+    }
+  }
+  const result = await model.listApproved(
+    productId, limit, (page - 1) * limit, ratingFilter,
+  );
+  return { ...result, page, limit, rating: ratingFilter };
 };
 
 const eligibility = (userId, productIdValue) =>

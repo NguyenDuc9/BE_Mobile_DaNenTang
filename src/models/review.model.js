@@ -1,27 +1,58 @@
 const db = require('../common/common');
 
 const ReviewModel = {
-  listApproved: async (productId, limit, offset) => {
+  listApproved: async (productId, limit, offset, ratingFilter = null) => {
+    const params = [productId];
+    let whereRating = '';
+    if (ratingFilter != null) {
+      whereRating = ' AND r.rating = ?';
+      params.push(ratingFilter);
+    }
     const [rows] = await db.promise().execute(
       `SELECT r.id, r.rating, r.comment, r.created_at,
               u.full_name AS reviewer_name,
               (r.order_item_id IS NOT NULL) AS verified_purchase
        FROM reviews r
        JOIN users u ON u.id = r.user_id
-       WHERE r.product_id = ? AND r.status = 'APPROVED'
+       WHERE r.product_id = ? AND r.status = 'APPROVED'${whereRating}
        ORDER BY r.created_at DESC
        LIMIT ? OFFSET ?`,
-      [productId, limit, offset],
+      [...params, limit, offset],
     );
     const [summaryRows] = await db.promise().execute(
       `SELECT COUNT(*) AS total, COALESCE(AVG(rating), 0) AS average
        FROM reviews WHERE product_id = ? AND status = 'APPROVED'`,
       [productId],
     );
+    // Phân bố rating theo từng mức 1..5 (đếm và tỷ lệ phần trăm).
+    // Dùng UNION ALL để đảm bảo có đủ 5 hàng ngay cả khi chưa có review.
+    const [breakdownRows] = await db.promise().execute(
+      `SELECT level.rating AS rating,
+              COALESCE(c.cnt, 0) AS count
+       FROM (SELECT 1 AS rating UNION ALL SELECT 2 UNION ALL SELECT 3
+             UNION ALL SELECT 4 UNION ALL SELECT 5) AS level
+       LEFT JOIN (
+         SELECT rating, COUNT(*) AS cnt
+         FROM reviews
+         WHERE product_id = ? AND status = 'APPROVED'
+         GROUP BY rating
+       ) AS c ON c.rating = level.rating
+       ORDER BY level.rating DESC`,
+      [productId],
+    );
+    const total = Number(summaryRows[0].total);
+    const breakdown = breakdownRows.map((row) => ({
+      rating: Number(row.rating),
+      count: Number(row.count),
+      percent: total > 0
+        ? Math.round((Number(row.count) / total) * 100)
+        : 0,
+    }));
     return {
       items: rows,
-      total: Number(summaryRows[0].total),
+      total,
       average: Number(summaryRows[0].average),
+      breakdown,
     };
   },
 
