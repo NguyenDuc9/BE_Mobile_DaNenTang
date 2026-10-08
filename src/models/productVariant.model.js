@@ -185,7 +185,6 @@ const ProductVariantModel = {
         id,
       ],
     );
-
     return result.affectedRows;
   },
 

@@ -4,7 +4,17 @@ const selectFavorite = `
   SELECT f.id AS favorite_id, f.created_at AS favorited_at,
          p.id, p.category_id, c.name AS category_name, c.slug AS category_slug,
          p.brand_id, b.name AS brand_name, p.name, p.slug, p.description,
-         p.thumbnail_url, p.status,
+         COALESCE(
+           NULLIF(p.thumbnail_url, ''),
+           (
+             SELECT pi.image_url
+             FROM product_images pi
+             WHERE pi.product_id = p.id
+             ORDER BY pi.is_primary DESC, pi.sort_order ASC, pi.id ASC
+             LIMIT 1
+           )
+         ) AS thumbnail_url,
+         p.status,
          pv.id AS variant_id, pv.sku, pv.variant_name, pv.price,
          pv.compare_at_price, pv.stock_quantity, pv.cpu, pv.ram, pv.storage,
          pv.gpu, pv.screen_size, pv.screen_resolution, pv.refresh_rate,
@@ -62,4 +72,3 @@ const FavoriteModel = {
 };
 
 module.exports = FavoriteModel;
-

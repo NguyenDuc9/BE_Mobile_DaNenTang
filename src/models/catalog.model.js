@@ -12,7 +12,7 @@ const productFrom = `
   )
   LEFT JOIN (
     SELECT product_id, COUNT(*) AS review_count, AVG(rating) AS rating_average
-    FROM reviews WHERE status = 'APPROVED' GROUP BY product_id
+    FROM reviews WHERE status <> 'HIDDEN' GROUP BY product_id
   ) review_stats ON review_stats.product_id = p.id
   LEFT JOIN (
     SELECT variants.product_id, SUM(items.quantity) AS sold_quantity
@@ -110,23 +110,81 @@ const CatalogModel = {
        LIMIT ? OFFSET ?`,
       [...params, filters.limit, filters.offset],
     );
+
+    if (rows.length > 0) {
+      const productIds = rows.map((row) => row.id);
+      const placeholders = productIds.map(() => '?').join(', ');
+      const [[imageRows], [voucherRows]] = await Promise.all([
+        db.promise().execute(
+          `SELECT product_id, image_url
+           FROM product_images
+           WHERE product_id IN (${placeholders})
+           ORDER BY is_primary DESC, sort_order ASC, id ASC`,
+          productIds,
+        ),
+        db.promise().execute(
+          `SELECT vp.product_id, v.code, v.discount_type, v.discount_value,
+                  v.max_discount, v.min_order_value
+           FROM voucher_products vp
+           JOIN vouchers v ON v.id = vp.voucher_id
+           WHERE vp.product_id IN (${placeholders})
+             AND v.status = 'ACTIVE'
+             AND v.start_at <= NOW()
+             AND v.end_at > NOW()
+             AND (v.usage_limit IS NULL OR v.used_count < v.usage_limit)
+           ORDER BY vp.product_id, v.id`,
+          productIds,
+        ),
+      ]);
+      const imagesByProductId = new Map();
+      const vouchersByProductId = new Map();
+      for (const image of imageRows) {
+        const productId = String(image.product_id);
+        const images = imagesByProductId.get(productId) || [];
+        images.push(image.image_url);
+        imagesByProductId.set(productId, images);
+      }
+      for (const voucher of voucherRows) {
+        const productId = String(voucher.product_id);
+        const vouchers = vouchersByProductId.get(productId) || [];
+        vouchers.push(voucher);
+        vouchersByProductId.set(productId, vouchers);
+      }
+      for (const row of rows) {
+        row.product_images = imagesByProductId.get(String(row.id)) || [];
+        let bestVoucher = null;
+        for (const voucher of vouchersByProductId.get(String(row.id)) || []) {
+          const price = Number(row.price);
+          const rawDiscount =
+            voucher.discount_type === 'PERCENT'
+              ? (price * Number(voucher.discount_value)) / 100
+              : Number(voucher.discount_value);
+          const discount = Math.min(
+            price,
+            rawDiscount,
+            voucher.max_discount == null
+              ? Number.POSITIVE_INFINITY
+              : Number(voucher.max_discount),
+          );
+          if (!bestVoucher || discount > bestVoucher.discount) {
+            bestVoucher = { voucher, discount };
+          }
+        }
+        if (bestVoucher && bestVoucher.discount > 0) {
+          row.voucher_code = bestVoucher.voucher.code;
+          row.voucher_discount_amount = bestVoucher.discount;
+          row.voucher_discounted_price = Math.max(
+            0,
+            Number(row.price) - bestVoucher.discount,
+          );
+          row.voucher_min_order_value = Number(bestVoucher.voucher.min_order_value);
+        }
+      }
+    }
+
     return { rows, total: Number(countRows[0].total) };
   },
   facets: async (filters) => {
-    const baseFilters = {
-      ...filters,
-      brand: [],
-      cpu: [],
-      ram: [],
-      storage: [],
-      gpu: [],
-      screenSize: [],
-      refreshRate: [],
-      minPrice: null,
-      maxPrice: null,
-      inStock: true,
-    };
-    const { where, params } = buildFilters(baseFilters);
     const definitions = {
       brand: { column: 'b.name', label: 'Thương hiệu' },
       cpu: { column: 'pv.cpu', label: 'CPU' },
@@ -138,6 +196,12 @@ const CatalogModel = {
     };
     const entries = await Promise.all(
       Object.entries(definitions).map(async ([key, definition]) => {
+        const facetFilters = {
+          ...filters,
+          [key]: [],
+          inStock: true,
+        };
+        const { where, params } = buildFilters(facetFilters);
         const [rows] = await db.promise().execute(
           `SELECT ${definition.column} AS value, COUNT(DISTINCT p.id) AS count
            ${productFrom}
@@ -160,6 +224,13 @@ const CatalogModel = {
         ];
       }),
     );
+    const priceFilters = {
+      ...filters,
+      minPrice: null,
+      maxPrice: null,
+      inStock: true,
+    };
+    const { where, params } = buildFilters(priceFilters);
     const [priceRows] = await db.promise().execute(
       `SELECT MIN(pv.price) AS min, MAX(pv.price) AS max
        ${productFrom}

@@ -1,7 +1,11 @@
 const db = require('../common/common');
+const REVIEWABLE_ORDER_STATUSES = ['DELIVERED', 'COMPLETED'];
+const REVIEWABLE_ORDER_STATUS_PLACEHOLDERS = REVIEWABLE_ORDER_STATUSES
+  .map(() => '?')
+  .join(', ');
 
 const ReviewModel = {
-  listApproved: async (productId, limit, offset, ratingFilter = null) => {
+  listVisible: async (productId, limit, offset, ratingFilter = null) => {
     const params = [productId];
     let whereRating = '';
     if (ratingFilter != null) {
@@ -14,14 +18,14 @@ const ReviewModel = {
               (r.order_item_id IS NOT NULL) AS verified_purchase
        FROM reviews r
        JOIN users u ON u.id = r.user_id
-       WHERE r.product_id = ? AND r.status = 'APPROVED'${whereRating}
+       WHERE r.product_id = ? AND r.status <> 'HIDDEN'${whereRating}
        ORDER BY r.created_at DESC
        LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     );
     const [summaryRows] = await db.promise().execute(
       `SELECT COUNT(*) AS total, COALESCE(AVG(rating), 0) AS average
-       FROM reviews WHERE product_id = ? AND status = 'APPROVED'`,
+       FROM reviews WHERE product_id = ? AND status <> 'HIDDEN'`,
       [productId],
     );
     // Phân bố rating theo từng mức 1..5 (đếm và tỷ lệ phần trăm).
@@ -34,7 +38,7 @@ const ReviewModel = {
        LEFT JOIN (
          SELECT rating, COUNT(*) AS cnt
          FROM reviews
-         WHERE product_id = ? AND status = 'APPROVED'
+         WHERE product_id = ? AND status <> 'HIDDEN'
          GROUP BY rating
        ) AS c ON c.rating = level.rating
        ORDER BY level.rating DESC`,
@@ -65,10 +69,10 @@ const ReviewModel = {
        JOIN product_variants pv ON pv.id = oi.product_variant_id
        LEFT JOIN reviews r ON r.user_id = o.user_id AND r.order_item_id = oi.id
        WHERE o.user_id = ? AND pv.product_id = ?
-         AND o.status IN ('DELIVERED', 'COMPLETED')
+         AND o.status IN (${REVIEWABLE_ORDER_STATUS_PLACEHOLDERS})
          AND r.id IS NULL
        ORDER BY o.created_at DESC`,
-      [userId, productId],
+      [userId, productId, ...REVIEWABLE_ORDER_STATUSES],
     );
     return rows;
   },
@@ -80,9 +84,9 @@ const ReviewModel = {
        JOIN orders o ON o.id = oi.order_id
        JOIN product_variants pv ON pv.id = oi.product_variant_id
        WHERE oi.id = ? AND o.user_id = ? AND pv.product_id = ?
-         AND o.status IN ('DELIVERED', 'COMPLETED')
+         AND o.status IN (${REVIEWABLE_ORDER_STATUS_PLACEHOLDERS})
        LIMIT 1`,
-      [orderItemId, userId, productId],
+      [orderItemId, userId, productId, ...REVIEWABLE_ORDER_STATUSES],
     );
     return rows[0];
   },
@@ -91,7 +95,7 @@ const ReviewModel = {
     const [result] = await db.promise().execute(
       `INSERT INTO reviews
          (user_id, product_id, order_item_id, rating, comment, status)
-       VALUES (?, ?, ?, ?, ?, 'PENDING')`,
+       VALUES (?, ?, ?, ?, ?, 'APPROVED')`,
       [userId, productId, orderItemId, rating, comment || null],
     );
     return result.insertId;
@@ -124,4 +128,3 @@ const ReviewModel = {
 };
 
 module.exports = ReviewModel;
-
