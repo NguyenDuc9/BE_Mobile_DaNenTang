@@ -39,7 +39,7 @@ const list = async (productIdValue, query) => {
       ratingFilter = parsed;
     }
   }
-  const result = await model.listApproved(
+  const result = await model.listVisible(
     productId, limit, (page - 1) * limit, ratingFilter,
   );
   return { ...result, page, limit, rating: ratingFilter };
@@ -57,7 +57,7 @@ const create = async (userId, productIdValue, body) => {
   }
   try {
     const id = await model.create({ userId, productId, orderItemId, ...input });
-    return { id, status: 'PENDING' };
+    return { id, status: 'APPROVED' };
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       fail('Sản phẩm trong đơn hàng này đã được đánh giá', 409);
@@ -93,4 +93,3 @@ const moderate = async (idValue, status) => {
 };
 
 module.exports = { list, eligibility, create, update, remove, moderate };
-

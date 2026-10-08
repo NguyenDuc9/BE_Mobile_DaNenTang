@@ -140,7 +140,7 @@ const validateReview = (body) => {
   const userId = positiveId(body.user_id, 'user_id');
   const productId = positiveId(body.product_id, 'product_id');
   const rating = Number(body.rating);
-  const status = body.status || 'PENDING';
+  const status = body.status === 'PENDING' ? 'APPROVED' : body.status || 'APPROVED';
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
     fail('rating phải là số nguyên từ 1 đến 5');
   }
@@ -150,7 +150,7 @@ const validateReview = (body) => {
   if (body.comment && body.comment.length > 2000) {
     fail('comment không được vượt quá 2000 ký tự');
   }
-  if (!['PENDING', 'APPROVED', 'HIDDEN'].includes(status)) {
+  if (!['APPROVED', 'HIDDEN'].includes(status)) {
     fail('status không hợp lệ');
   }
   return {

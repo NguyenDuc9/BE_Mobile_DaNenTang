@@ -18,6 +18,55 @@ const orderCode = () =>
     .slice(2, 7)
     .toUpperCase()}`;
 
+const resetWarrantyPeriodFromDelivery = async (connection, orderId) => {
+  const [warranties] = await connection.execute(
+    `SELECT w.id, DATEDIFF(w.end_date, w.start_date) AS duration_days
+     FROM warranties w
+     JOIN order_items oi ON oi.id = w.order_item_id
+     WHERE oi.order_id = ?
+     FOR UPDATE`,
+    [orderId],
+  );
+  if (warranties.length) {
+    const [[{ receivedDate }]] = await connection.execute(
+      "SELECT DATE_FORMAT(CURRENT_DATE(), '%Y-%m-%d') AS receivedDate",
+    );
+    for (const warranty of warranties) {
+      await connection.execute(
+        `UPDATE warranties
+         SET start_date = ?, end_date = DATE_ADD(?, INTERVAL ? DAY)
+         WHERE id = ?`,
+        [receivedDate, receivedDate, warranty.duration_days, warranty.id],
+      );
+    }
+  }
+
+  await connection.execute(
+    `INSERT INTO warranties
+       (order_item_id, product_variant_id, serial_number, start_date, end_date, status)
+     SELECT oi.id, oi.product_variant_id, NULL, CURRENT_DATE(),
+            DATE_ADD(CURRENT_DATE(), INTERVAL pv.warranty_months MONTH), 'ACTIVE'
+     FROM order_items oi
+     JOIN product_variants pv ON pv.id = oi.product_variant_id
+     WHERE oi.order_id = ?
+       AND pv.warranty_months > 0
+       AND NOT EXISTS (
+         SELECT 1 FROM warranties existing
+         WHERE existing.order_item_id = oi.id
+       )`,
+    [orderId],
+  );
+
+  await connection.execute(
+    `UPDATE warranties w
+     JOIN order_items oi ON oi.id = w.order_item_id
+     SET w.serial_number = CONCAT('SN-', LPAD(w.id, 8, '0'))
+     WHERE oi.order_id = ?
+       AND (w.serial_number IS NULL OR w.serial_number = '')`,
+    [orderId],
+  );
+};
+
 const SPECIAL_REQUESTS = new Set([
   'AFTER_HOURS',
   'CALL_BEFORE_DELIVERY',
@@ -392,7 +441,17 @@ const getById = async (userId, idValue, connection = db.promise(), role) => {
   // — mobile cần product_id để bật nút "Đánh giá" từ OrderDetail mà không
   // cần gọi thêm API.
   const [items] = await connection.execute(
-    `SELECT oi.*, pv.product_id, p.thumbnail_url AS product_thumbnail
+    `SELECT oi.*, pv.product_id,
+            COALESCE(
+              NULLIF(p.thumbnail_url, ''),
+              (
+                SELECT pi.image_url
+                FROM product_images pi
+                WHERE pi.product_id = p.id
+                ORDER BY pi.is_primary DESC, pi.sort_order ASC, pi.id ASC
+                LIMIT 1
+              )
+            ) AS product_thumbnail
      FROM order_items oi
      LEFT JOIN product_variants pv ON pv.id = oi.product_variant_id
      LEFT JOIN products p ON p.id = pv.product_id
@@ -481,6 +540,9 @@ const updateStatus = async (idValue, status, reason) => {
     }
     if (status === 'CANCELLED') {
       await restoreOrderInventory(connection, order.user_id, id, reason);
+    }
+    if (status === 'DELIVERED') {
+      await resetWarrantyPeriodFromDelivery(connection, id);
     }
     await connection.execute(
       'UPDATE orders SET status = ?, cancelled_reason = IF(? = \'CANCELLED\', ?, cancelled_reason) WHERE id = ?',

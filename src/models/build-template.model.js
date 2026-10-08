@@ -3,8 +3,13 @@ const db = require('../common/common');
 const BuildTemplateModel = {
   list: async (includeInactive = false) => {
     const [rows] = await db.promise().execute(
-      `SELECT id, name, description, status, estimated_total, created_at, updated_at
-       FROM build_templates ${includeInactive ? '' : "WHERE status = 'ACTIVE'"} ORDER BY created_at DESC`,
+      `SELECT bt.id, bt.name, bt.description, bt.status, bt.estimated_total,
+              bt.created_at, bt.updated_at,
+              (SELECT COUNT(*) FROM build_template_items bti
+               WHERE bti.template_id = bt.id) AS item_count
+       FROM build_templates bt
+       ${includeInactive ? '' : "WHERE bt.status = 'ACTIVE'"}
+       ORDER BY bt.created_at DESC`,
     );
     return rows;
   },
@@ -29,7 +34,7 @@ const BuildTemplateModel = {
         await conn.execute('DELETE FROM build_template_items WHERE template_id=?', [id]);
       } else {
         const [r] = await conn.execute(
-          `INSERT INTO build_templates (name, description, status, estimated_total) VALUES (?, ?, 'DRAFT', ?)`,
+          `INSERT INTO build_templates (name, description, status, estimated_total) VALUES (?, ?, 'INACTIVE', ?)`,
           [data.name, data.description || null, data.estimatedTotal],
         );
         templateId = r.insertId;
@@ -45,6 +50,31 @@ const BuildTemplateModel = {
       return templateId;
     });
   },
+  delete: async (id) => {
+    const [result] = await db.promise().execute(
+      'DELETE FROM build_templates WHERE id = ?',
+      [id],
+    );
+    return result.affectedRows > 0;
+  },
+  listAvailableComponents: async () => {
+    const [rows] = await db.promise().execute(
+      `SELECT pv.id AS product_variant_id, pv.product_id, pv.variant_name,
+              pv.sku, pv.price, pv.stock_quantity, cs.component_type,
+              p.name AS product_name
+       FROM component_specs cs
+       JOIN product_variants pv ON pv.id = cs.product_variant_id
+       JOIN products p ON p.id = pv.product_id
+       JOIN categories c ON c.id = p.category_id
+       WHERE c.slug = 'linh-kien'
+         AND pv.status = 'ACTIVE'
+         AND p.status = 'ACTIVE'
+         AND cs.component_type IN ('CPU', 'MAINBOARD', 'RAM', 'GPU',
+                                   'STORAGE', 'PSU', 'CASE', 'COOLER')
+       ORDER BY cs.component_type, p.name, pv.variant_name`,
+    );
+    return rows;
+  },
   setStatus: async (id, status) => {
     const [r] = await db.promise().execute('UPDATE build_templates SET status=? WHERE id=?', [status, id]);
     return r.affectedRows;
@@ -54,10 +84,21 @@ const BuildTemplateModel = {
     for (const item of items) {
       const [rows] = await db.promise().execute(
         `SELECT v.id, v.product_id, v.price, p.name AS product_name
-         FROM product_variants v JOIN products p ON p.id=v.product_id
-         WHERE v.id=? AND v.product_id=? AND v.status='ACTIVE' AND p.status='ACTIVE'`, [item.productVariantId, item.productId],
+         FROM product_variants v
+         JOIN products p ON p.id = v.product_id
+         JOIN categories c ON c.id = p.category_id
+         JOIN component_specs cs ON cs.product_variant_id = v.id
+         WHERE v.id = ? AND v.product_id = ?
+           AND cs.component_type = ?
+           AND c.slug = 'linh-kien'
+           AND v.status = 'ACTIVE' AND p.status = 'ACTIVE'`,
+        [item.productVariantId, item.productId, item.componentType],
       );
-      if (!rows[0]) return { error: `variant ${item.productVariantId} không thuộc product hoặc không ACTIVE` };
+      if (!rows[0]) {
+        return {
+          error: `Linh kiện ${item.productVariantId} không khớp loại ${item.componentType} hoặc không còn hoạt động`,
+        };
+      }
       result.push({ ...item, unitPrice: Number(rows[0].price), productName: rows[0].product_name });
     }
     return { items: result };
